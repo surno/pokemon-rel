@@ -5,7 +5,7 @@ users:
     groups: sudo
     sudo: "ALL=(ALL) NOPASSWD:ALL"
     lock_passwd: false
-    passwd: "$6$/JqmTH0kEI/TW$VrR8mObXG7k.XJ5XIf1xEfYI5EgyqyqD9jrY57Bx3kM1CMEjPm9DhDk8lMVqXyNO8tDOV7bxvjQM2I0eKVFTT0"  # "packer"
+    passwd: "SuperSecret!"
 ssh_pwauth: true
 package_update: true
 runcmd:
