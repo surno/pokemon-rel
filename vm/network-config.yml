@@ -1,0 +1,5 @@
+#cloud-config
+version: 2
+ethernets:
+  ens3:          # QEMU virtio NIC name inside Debian
+    dhcp4: true

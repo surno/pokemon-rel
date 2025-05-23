@@ -10,22 +10,45 @@ packer {
 ###############################################################################
 # ─── VARIABLES ──────────────────────────────────────────────────────────────
 ###############################################################################
-variable "vm_count"          { type = number default = 1 }   # fleet size
-variable "cpus"              { type = number default = 2  }  # per-VM vCPUs
-variable "ram"               { type = number default = 4096 }# MiB per VM
-variable "disk_size"         { type = string  default = "20G" }
-variable "host_ssh_baseport" { type = number default = 2222 }
+variable "vm_count" {
+  type    = number
+  default = 1
+  # fleet size
+}
 
-# SHA-256 for debian-12.5.0-amd64-netinst.iso  (mirrors Feb 2025)
-#   1eef148d89ef4edefbc968453c12035fa7911f3e3f2eb0ec5fc1f9c0d43ea63d
+variable "cpus" {
+  type    = number
+  default = 8
+  # per‑VM vCPUs
+}
+
+variable "ram" {
+  type    = number
+  default = 8192
+  # MiB per VM
+}
+
+variable "disk_size" {
+  type    = string
+  default = "20G"
+}
+
+variable "host_ssh_baseport" {
+  type    = number
+  default = 2222
+}
+
+# SHA-256 for debian-12.11.0-amd64-netinst.iso  (mirrors May 2025)
+#   30ca12a15cae6a1033e03ad59eb7f66a6d5a258dcf27acd115c2bd42d22640e8
 variable "iso_checksum" {
   type    = string
-  default = "sha256:1eef148d89ef4edefbc968453c12035fa7911f3e3f2eb0ec5fc1f9c0d43ea63d"
+  default = "sha256:30ca12a15cae6a1033e03ad59eb7f66a6d5a258dcf27acd115c2bd42d22640e8"
 }
 
 source "qemu" "debian12" {
-  accelerator     = "hvf"                    
-  iso_url         = "https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.5.0-amd64-netinst.iso"
+  accelerator     = "tcg"
+  qemu_binary     = "qemu-system-x86_64"
+  iso_url         = "https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.11.0-amd64-netinst.iso"
   iso_checksum     = var.iso_checksum
 
   vm_name         = "shinyfarm"
@@ -39,24 +62,26 @@ source "qemu" "debian12" {
 
   http_directory  = "http"
   ssh_username    = "shinyfarm"
-  ssh_password    = "shinyfarm"
-  ssh_timeout     = "20m"
+  ssh_password    = "SuperSecret!"
+  ssh_timeout     = "1h"
 
-  # dynamic host-side SSH port → 2222, 2223, … one per VM build
   qemuargs = [
     ["-smp", "${var.cpus}"],
-    ["-m",  "${var.ram}"],
+    ["-m",   "${var.ram}"],
     ["-net", "nic,model=virtio"],
-    ["-net", "user,hostfwd=tcp::${var.host_ssh_baseport + build.Index}-:22"],
-    ["-drive", "file=user-seed.iso,format=raw,if=virtio"]
+    ["-net", "user"]
   ]
 
   boot_command = [
-    "<enter><wait>",
-    "auto url=http://{{ .HTTPIP }}:{{ .HTTPPort }}/preseed.cfg ",
-    "debian-installer=en_US ",
+    "<wait5><esc><wait>",
+    "install netcfg/choose_interface=auto ",
+    "auto=true priority=critical ",
+    "preseed/url=http://{{ .HTTPIP }}:{{ .HTTPPort }}/preseed.cfg ",
+    "locale=en_US ",
+    "keyboard-configuration/xkb-keymap=us ",
     "hostname=shinyfarm ",
-    "fb=false debconf/frontend=noninteractive<enter>"
+    "fb=false debconf/frontend=noninteractive ",
+    "<enter>"
   ]
 }
 
@@ -70,6 +95,8 @@ build {
       "scripts/build-libtas.sh",
       "scripts/systemd-units.sh"
     ]
+    # run every script via sudo so apt can touch system paths
+    execute_command = "sudo -E sh -c '{{ .Vars }} {{ .Path }}'"  
   }
 
   # ── cloud-init seed ISO bundled into artifact ────────────────────────────
