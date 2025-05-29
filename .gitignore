@@ -1,2 +1,13 @@
 *.nds
 *.sav
+
+# ignore virtual machine disk images
+**/*.qcow2
+**/*.img
+**/*.iso
+
+# exclude vm output
+vm/output/**
+vm/output/qcow/**
+vm/output/qcow2/**
+vm/output-overlay/**
