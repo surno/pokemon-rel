@@ -9,7 +9,11 @@ apt-get upgrade -y
 # Generic toolchain & helpers
 apt-get install -y --no-install-recommends \
   build-essential git cmake pkg-config ninja-build \
-  curl unzip ca-certificates sudo libenet-dev extra-cmake-modules
+  curl unzip ca-certificates sudo libenet-dev extra-cmake-modules \
+  automake pkg-config libx11-dev libx11-xcb-dev \
+  qtbase5-dev libsdl2-dev libxcb1-dev libxcb-keysyms1-dev libxcb-xinput-dev \
+  libxcb-xkb-dev libxcb-randr0-dev libudev-dev liblua5.4-dev libasound2-dev \
+  libavutil-dev libswresample-dev ffmpeg libcap-dev
 
 # melonDS deps
 apt-get install -y --no-install-recommends \
