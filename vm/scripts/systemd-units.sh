@@ -8,9 +8,9 @@ After=network-online.target
 
 [Service]
 Type=simple
-User=packer
+User=shinyfarm
 # Example ROM/Save path—edit to your own mount or cloud bucket
-ExecStart=/usr/local/bin/melonds --bios-path=/opt/melonds/bios --nogui /home/packer/roms/pokemon.nds
+ExecStart=/usr/local/bin/melonds --bios-path=/opt/melonds/bios --nogui /home/shinyfarm/roms/pokemon.nds
 Restart=on-failure
 Nice=5
 
@@ -27,9 +27,9 @@ Wants=melon@2.service
 # Add more lines for melon@3.service … melon@n.service
 EOF
 
-# Make sure packer user owns its working dirs
-mkdir -p /home/packer/roms
-chown -R packer:packer /home/packer
+# Make sure shinyfarm user owns its working dirs
+mkdir -p /home/shinyfarm/roms
+chown -R shinyfarm:shinyfarm /home/shinyfarm
 
 systemctl daemon-reload
 systemctl enable melon-farm.target

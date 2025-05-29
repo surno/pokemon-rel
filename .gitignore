@@ -11,3 +11,4 @@ vm/output/**
 vm/output/qcow/**
 vm/output/qcow2/**
 vm/output-overlay/**
+vm/meta-data
