@@ -13,7 +13,7 @@ apt-get install -y --no-install-recommends \
   automake pkg-config libx11-dev libx11-xcb-dev \
   qtbase5-dev libsdl2-dev libxcb1-dev libxcb-keysyms1-dev libxcb-xinput-dev \
   libxcb-xkb-dev libxcb-randr0-dev libudev-dev liblua5.4-dev libasound2-dev \
-  libavutil-dev libswresample-dev ffmpeg libcap-dev
+  libavutil-dev libswresample-dev ffmpeg libcap-dev cloud-image-utils
 
 # melonDS deps
 apt-get install -y --no-install-recommends \

@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cat >/etc/systemd/system/melon@\x2eservice <<'EOF'
+# --------------------------------------------------------------------------------
+# Template service: melon@.service
+# --------------------------------------------------------------------------------
+cat >/etc/systemd/system/melon@.service <<'EOF'
 [Unit]
 Description=melonDS instance %i for shiny farm
 After=network-online.target
@@ -18,18 +21,24 @@ Nice=5
 WantedBy=multi-user.target
 EOF
 
-# A target that can pull as many parallel melonDS services as you like
+# --------------------------------------------------------------------------------
+# Aggregate target: melon-farm.target
+# --------------------------------------------------------------------------------
 cat >/etc/systemd/system/melon-farm.target <<'EOF'
 [Unit]
 Description=Aggregate target to spin up all melonDS shiny-hunting units
 Wants=melon@1.service
 Wants=melon@2.service
 # Add more lines for melon@3.service … melon@n.service
+
+[Install]
+WantedBy=multi-user.target
 EOF
 
 # Make sure shinyfarm user owns its working dirs
 mkdir -p /home/shinyfarm/roms
 chown -R shinyfarm:shinyfarm /home/shinyfarm
 
+# Reload systemd daemon and enable the farm target
 systemctl daemon-reload
 systemctl enable melon-farm.target

@@ -28,8 +28,7 @@ variable "base_image" {
 }
 
 source "qemu" "overlay" {
-  # No ISO, no boot_command – we’re booting an existing Debian image
-  accelerator  = "tcg"
+
   qemu_binary  = "qemu-system-x86_64"
   iso_url        = var.base_image            # treat qcow2 as bootable image
   iso_checksum   = "none"
@@ -64,8 +63,7 @@ build {
 
   post-processor "shell-local" {
     inline = [
-      "echo 'instance-id: shinyfarm' > meta-data",
-      "cloud-localds --network-config=network-config.yml user-seed.iso user-data.yaml meta-data"
+      "echo 'instance-id: shinyfarm' > meta-data"
     ]
   }
 }
