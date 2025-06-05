@@ -6,10 +6,14 @@ sock:settimeout(0)
 
 while true do
     -- grab the pixels of the top of the screen
-    local fb = gui.screenshot()
-    local top = fb.sub(1, 256 * 192 * 3)
-    -- send the pixels to the server
-    local ok, err = sock:send(top)
+    -- old (line ~9)
+    -- local screenshot = screenshot()      -- nil!
+
+    -- new
+    local w, h, pixels = gui.gdscreenshot()   -- returns 256,192, <147,456-byte string>
+
+    -- send to server 
+    local ok, err = sock:send(sock:send(pixels))
     if not ok then
         print("Error sending data: " .. err)
         break
