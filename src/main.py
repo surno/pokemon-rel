@@ -1,35 +1,79 @@
-import socket, argparse, numpy as np, torch, torch.nn as nn
+import socket, struct, gym, numpy as np
 from stable_baselines3 import PPO
-import gym   # you already import it elsewhere
 
-# ------------ NEW: CLI flags -------------
-parser = argparse.ArgumentParser()
-parser.add_argument("--host", default="0.0.0.0")
-parser.add_argument("--port", type=int, default=5555)
-args = parser.parse_args()
-# -----------------------------------------
+LISTEN_PORT = 5555
 
-env_sock = socket.socket()
-env_sock.bind((args.host, args.port))
-env_sock.listen(1)
-print(f"[Server] Waiting on {args.host}:{args.port} …")
-conn, addr = env_sock.accept()
-print(f"[Server] Bot connected from {addr}")
+def get_listener() -> socket.socket:
+    """Return a listening TCP socket bound to 0.0.0.0:LISTEN_PORT."""
+    s = socket.socket()
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.bind(("0.0.0.0", LISTEN_PORT))
+    s.listen(1)
+    return s
+
+listener = get_listener()
+print(f"[Server] Listening on 0.0.0.0:{LISTEN_PORT} …")
 
 class DSWrapper(gym.Env):
     def __init__(self):
         self.observation_space = gym.spaces.Box(0,255,(192,256,3),np.uint8)
         self.action_space      = gym.spaces.MultiBinary(12)
+        self.conn = None
+        self._connect()
+
+    # --------------------------------------------------
+    # networking helpers
+    # --------------------------------------------------
+    def _connect(self):
+        """Block until a bot connects, then store the socket."""
+        self.conn, addr = listener.accept()
+        print(f"[Server] Bot connected from {addr}")
+        self.conn.settimeout(15)   # header + 147 456‑byte payload
+
+    def _recv_exact(self, n):
+        buf = bytearray()
+        while len(buf) < n:
+            remaining = n - len(buf)
+            try:
+                chunk = self.conn.recv(remaining)
+            except socket.timeout:
+                raise ConnectionError("Timed out mid-frame")
+            if not chunk:
+                raise ConnectionError("Bot closed connection mid‑frame")
+            buf.extend(chunk)
+        return bytes(buf)
+
     def step(self, action):
-        conn.send(bytes(action))
-        pixels = conn.recv(256*192*3)
-        obs = np.frombuffer(pixels,dtype=np.uint8).reshape(192,256,3)
-        reward = compute_reward(obs)
-        done   = check_terminal(obs)
+        try:
+            hdr = self._recv_exact(8)
+            w, h = struct.unpack("<II", hdr)
+            pixels = self._recv_exact(w * h * 3)
+            #  send back the 12‑byte action mask (all‑zeros placeholder)
+            self.conn.sendall(bytes(action))
+        except (ConnectionError, OSError) as exc:
+            print("[Server] connection lost:", exc)
+            self.conn.close()
+            self._connect()
+            # return zero observation, done=True so PPO resets episode
+            return np.zeros((192,256,3),dtype=np.uint8), 0.0, True, {}
+
+        obs = np.frombuffer(pixels, dtype=np.uint8).reshape(h, w, 3)
+        
+        # 3) compute reward / terminal flags (stub)
+        reward  = 0.0
+        done    = False
         return obs, reward, done, {}
+    
     def reset(self):
         return np.zeros((192,256,3),dtype=np.uint8)
 
-env   = DSWrapper()
-model = PPO('CnnPolicy', env, verbose=1)
+def compute_reward(obs): return 0.0
+def check_terminal(obs): return False
+
+# ------------------------------------------------------------------
+# Train
+# ------------------------------------------------------------------
+
+env = DSWrapper()
+model = PPO("CnnPolicy", env, verbose=1)
 model.learn(total_timesteps=10_000)
