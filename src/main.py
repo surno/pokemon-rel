@@ -19,6 +19,7 @@ class DSWrapper(gym.Env):
         self.observation_space = gym.spaces.Box(0,255,(192,256,3),np.uint8)
         self.action_space      = gym.spaces.MultiBinary(12)
         self.conn = None
+        self._frame_counter = 0
         self._connect()
 
     # --------------------------------------------------
@@ -58,6 +59,13 @@ class DSWrapper(gym.Env):
             return np.zeros((192,256,3),dtype=np.uint8), 0.0, True, {}
 
         obs = np.frombuffer(pixels, dtype=np.uint8).reshape(h, w, 3)
+
+        # ─── debug: print every 100th frame size ───────────────────────
+        if self._frame_counter % 100 == 0:
+            print(f"[Server] frame {self._frame_counter}: "
+                  f"w={w} h={h}  bytes={len(pixels)}")
+        self._frame_counter += 1
+        # ────────────────────────────────────────────────────────────────
         
         # 3) compute reward / terminal flags (stub)
         reward  = 0.0
