@@ -2,6 +2,7 @@
 -- 1) all your socket setup stays the same
 -------------------------------------------------------------------
 local socket = require("socket")
+local bit = bit32 or require("bit")  -- Lua 5.1: use luabitop if present
 local HOST, PORT = "192.168.10.242", 5555
 local sock = assert(socket.tcp())
 assert(sock:connect(HOST, PORT))
@@ -26,31 +27,42 @@ local function le32(n)
     )
 end
 
--------------------------------------------------------------------
--- 2) frame-handler: gets called automatically every frame
--------------------------------------------------------------------
--- pick the first capture function available in this build
-local capture = gui.gdscreenshotRaw or gui.gdscreenshotVRAM or gui.gdscreenshot
-print(string.format("[Lua] using capture: %s", debug.getinfo(capture).name or "unknown"))
+local first = true      -- print hex dump only on the very first valid frame
+
+local capture = gui.gdscreenshot
+print("[Lua] using capture: gdscreenshot (GD2)")
 
 local function stream_frame()
+
     ------------------------------------------------------------------
     -- 1) finish any pending send from the previous frame
     ------------------------------------------------------------------
+
     if send_buf then
-        local to_send = send_buf:sub(send_offset, send_offset + CHUNK - 1)
-        local sent, err, partial = sock:send(to_send)
-        if sent and sent > 0 then
-            send_offset = send_offset + sent
-        elseif err == "timeout" and partial and partial > 0 then
-            send_offset = send_offset + partial
-        end
         if send_offset > #send_buf then
-            send_buf, send_offset = nil, 1
+            send_buf = nil
+            -- wait to receive 12-byte action before capturing next frame
+            local action, recv_err = sock:receive(12)
+            if not action then
+                print("RECV-ACTION-ERR:", recv_err)
+                sock:close()
+                return
+            end
         else
-            return                         -- wait next frame to continue
+            local sent, err = sock:send(send_buf, send_offset)
+            if sent then
+                send_offset = send_offset + sent
+                if send_offset > #send_buf then send_buf = nil end
+            elseif err ~= "timeout" then
+                print("SEND-ERR:", err)
+                sock:close()
+                return
+            end
         end
+        return
     end
+
+
 
     ------------------------------------------------------------------
     -- 2) receive the 12‑byte action mask (non‑blocking)
@@ -79,25 +91,28 @@ local function stream_frame()
     ------------------------------------------------------------------
     if send_buf then return end   -- still flushing old frame
 
-    local w, h, pixels = capture()
-    if type(w) == "string" and pixels == nil then
-        pixels = w;  w, h = 256, (#pixels / (256*3) >= 384) and 384 or 192
+    -- capture top and bottom screens as separate GD2 blobs
+    local top_blob = gui.gdscreenshot(1)
+    local bot_blob = gui.gdscreenshot(0)
+    if not top_blob or not bot_blob or #top_blob == 0 or #bot_blob == 0 then
+        print("ERROR: failed to capture top or bottom screen")
+        return
     end
-    if type(pixels) ~= "string" then return end
+    local blob = top_blob .. bot_blob
+    local actual_size = #blob
+    print(string.format("[Lua] blob length is %d bytes", actual_size))
+    if first then
+        local hex = blob:sub(1,16):gsub(".", function(c) return string.format("%02X ", c:byte()) end)
+        print("[Lua] first 16 bytes (pixels):", hex)
+        first = false
+    end
+    -- wrap both screens in our “GD2” + little‐endian length header
+    local payload = "GD2" .. le32(actual_size) .. blob
+    send_buf      = payload
+    send_offset   = 1
+    print(string.format("[Lua] about to send: 'GD2' | len=%d", actual_size))
 
-    if pixels:sub(1,3) == "GD" then
-        pixels = pixels:sub(12)
-    end
-    if h > 192 then
-        h = 192
-        pixels = pixels:sub(1, 256*192*3)
-    end
-    if #pixels < 256*192*3 then return end
-
-    send_buf    = le32(256) .. le32(192) .. pixels
-    send_offset = 1
 end
-
 -- 3) register once
 gui.register(stream_frame)
 
