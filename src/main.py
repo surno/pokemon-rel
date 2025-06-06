@@ -48,7 +48,14 @@ class DSWrapper(gym.Env):
         try:
             hdr = self._recv_exact(8)
             w, h = struct.unpack("<II", hdr)
-            pixels = self._recv_exact(w * h * 3)
+            # sanity‑check: DeSmuME top screen must be 256×192
+            if w != 256 or h != 192:
+                print(f"[Server] WARNING: received header {w}×{h}; skipping frame")
+                # read and discard whatever payload arrives this frame
+                discard = self._recv_exact(min(w * h * 3, 512 * 1024))
+                return np.zeros((192,256,3),dtype=np.uint8), 0.0, False, {}
+
+            pixels = self._recv_exact(256 * 192 * 3)
             #  send back the 12‑byte action mask (all‑zeros placeholder)
             self.conn.sendall(bytes(action))
         except (ConnectionError, OSError) as exc:
