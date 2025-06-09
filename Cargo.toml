@@ -6,4 +6,5 @@ edition = "2024"
 [dependencies]
 thiserror = { version = "2.0.12" }
 tokio = { version = "1.45.1", features = ["full"] }
+tracing = { version = "0.1.41" }
 uuid = { version = "1.13.0", features = ["v4"] }

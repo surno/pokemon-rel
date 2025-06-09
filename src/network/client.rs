@@ -4,6 +4,7 @@ use tokio::{
     net::TcpStream,
     sync::broadcast::{self, Sender},
 };
+use tracing::{debug, error, info};
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -24,7 +25,7 @@ impl ClientHandle {
         match self.shutdown_tx.send(()) {
             Ok(_) => Ok(()),
             Err(e) => {
-                println!(
+                error!(
                     "Error sending shutdown to client handle {:?}: {:?}",
                     self.id,
                     e.to_string()
@@ -50,7 +51,7 @@ impl Client {
     }
 
     pub async fn handle_next_message(&mut self) -> Result<bool, ClientError> {
-        println!("Handling next message for {:?}", self.id);
+        debug!("Handling next message for {:?}", self.id);
         if !self.is_connected().await {
             return Ok(false);
         }
@@ -74,33 +75,33 @@ impl Client {
     }
 
     pub async fn run_pipeline(&mut self) -> Result<(), ClientError> {
-        println!("Running client pipeline for {:?}", self.id);
+        info!("Running client pipeline for {:?}", self.id);
         let mut shutdown_rx = self.shutdown_tx.subscribe();
         loop {
             tokio::select! {
                 biased;
                 _ = shutdown_rx.recv() => {
                     self.stop().await.map_err(|e: NetworkError| ClientError::StopError(e))?;
-                    println!("Client pipeline for {:?} received shutdown", self.id);
+                    debug!("Client pipeline for {:?} received shutdown", self.id);
                     break;
                 }
                 result = self.handle_next_message() => {
                     match result {
                         Ok(should_continue) => {
                             if !should_continue {
-                                println!("Client pipeline for {:?} received shutdown", self.id);
+                                debug!("Client pipeline for {:?} received shutdown", self.id);
                                 break;
                             }
-                            println!("Client pipeline for {:?} handled message", self.id);
+                            debug!("Client pipeline for {:?} handled message", self.id);
                         }
                         Err(e) => {
-                            println!("Client pipeline for {:?} handled message: {:?}", self.id, e);
+                            error!("Client pipeline for {:?} handled message: {:?}", self.id, e);
                         }
                     }
                 }
             }
         }
-        println!("Client pipeline for {:?} finished", self.id);
+        debug!("Client pipeline for {:?} finished", self.id);
         Ok(())
     }
 
@@ -109,7 +110,7 @@ impl Client {
     }
 
     pub async fn is_connected(&self) -> bool {
-        println!("Checking if client {:?} is connected", self.id);
+        debug!("Checking if client {:?} is connected", self.id);
         self.stream
             .ready(Interest::READABLE | Interest::WRITABLE)
             .await
@@ -117,7 +118,7 @@ impl Client {
     }
 
     pub async fn stop(&mut self) -> Result<(), NetworkError> {
-        println!("Shutting down client {:?}", self.id);
+        info!("Shutting down client {:?}", self.id);
         self.stream
             .shutdown()
             .await

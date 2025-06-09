@@ -6,6 +6,7 @@ use tokio::{
     sync::RwLock,
     sync::broadcast,
 };
+use tracing::{error, info};
 
 #[derive(Debug)]
 pub struct NetworkManager {
@@ -53,7 +54,7 @@ impl NetworkManager {
     }
 
     pub async fn start(&mut self) -> Result<(), NetworkError> {
-        println!("Starting network manager on port {}", self.port);
+        info!("Starting network manager on port {}", self.port);
         if self.listener.is_some() {
             return Err(NetworkError::AlreadyStarted);
         }
@@ -66,7 +67,7 @@ impl NetworkManager {
         loop {
             tokio::select! {
                 _ = shutdown_rx.recv() => {
-                    println!("Shutting down network manager.");
+                    info!("Shutting down network manager.");
                     self.shutdown().await;
                     return Ok(());
                 }
@@ -74,7 +75,7 @@ impl NetworkManager {
                     if let Ok((stream, _)) = result {
                         self.spawn_client_pipeline(stream).await;
                     } else {
-                        println!("Error accepting connection: {:?}", result.err());
+                        error!("Error accepting connection: {:?}", result.err());
                     }
                 }
             };
@@ -85,7 +86,7 @@ impl NetworkManager {
         let addr = stream.peer_addr().unwrap();
         let (client, client_handle) = Client::new(stream);
         let client_id = client.id();
-        println!(
+        info!(
             "New client attempting to connect: {:?} from {:?}",
             client_id, addr
         );
@@ -94,33 +95,33 @@ impl NetworkManager {
 
         let clients_for_cleanup = self.client_handles.clone();
         tokio::spawn(async move {
-            println!("Starting client pipeline for {:?}", client_id);
+            info!("Starting client pipeline for {:?}", client_id);
             let mut client = client;
             let result = client.run_pipeline().await;
             match result {
                 Ok(_) => {
-                    println!("Client pipeline for {:?} finished successfully", client_id);
+                    info!("Client pipeline for {:?} finished successfully", client_id);
                 }
                 Err(e) => {
-                    println!("Error running client pipeline for {:?}: {:?}", client_id, e);
+                    error!("Error running client pipeline for {:?}: {:?}", client_id, e);
                 }
             }
             clients_for_cleanup
                 .write()
                 .await
                 .retain(|c| c.id != client_id);
-            println!("Client disconnected: {:?} from {:?}", client_id, addr);
+            info!("Client disconnected: {:?} from {:?}", client_id, addr);
         });
-        println!("Client connected: {:?} from {:?}", client_id, addr);
+        info!("Client connected: {:?} from {:?}", client_id, addr);
     }
 
     pub async fn shutdown(&mut self) {
-        println!("Stopping network manager on port {}", self.port);
+        info!("Stopping network manager on port {}", self.port);
         for client_handle in self.client_handles.write().await.drain(..) {
             let result = client_handle.send_shutdown().await;
             match result {
-                Ok(_) => println!("Client disconnected: {:?}", client_handle.id),
-                Err(e) => println!("Error stopping client: {:?}", e),
+                Ok(_) => info!("Client disconnected: {:?}", client_handle.id),
+                Err(e) => error!("Error stopping client: {:?}", e),
             }
         }
         match self.listener.take() {
@@ -128,7 +129,7 @@ impl NetworkManager {
                 drop(listener);
             }
             None => {
-                println!("No listener to shutdown");
+                error!("No listener to shutdown");
             }
         }
     }
