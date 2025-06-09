@@ -18,9 +18,12 @@ impl Client {
 
     pub async fn stop(&mut self) -> Result<(), NetworkError> {
         let mut stream = self.stream.lock().await;
-        let result = stream.shutdown().await.map_err(NetworkError::ShutdownError);
+        stream
+            .shutdown()
+            .await
+            .map_err(|e| NetworkError::ShutdownError(e.to_string()))?;
         self.is_connected = false;
-        result
+        Ok(())
     }
 
     pub fn is_connected(&self) -> bool {

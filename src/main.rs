@@ -2,7 +2,7 @@ use pokebot_rust::NetworkManager;
 
 #[tokio::main]
 async fn main() {
-    let mut manager = NetworkManager::new(3344);
+    let (mut manager, handle) = NetworkManager::new(3344);
     let result = manager.start().await;
     if result.is_err() {
         println!("Error starting manager: {:?}", result.err());

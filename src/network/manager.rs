@@ -1,19 +1,39 @@
 use crate::{Client, NetworkError};
 use std::sync::Arc;
-use tokio::{net::TcpListener, sync::Mutex};
+use tokio::{net::TcpListener, sync::Mutex, sync::broadcast};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct NetworkManager {
-    pub clients: Vec<Client>,
-    pub port: u16,
+    clients: Vec<Client>,
+    port: u16,
+    shutdown_rx: broadcast::Receiver<()>,
+}
+
+#[derive(Debug)]
+pub struct NetworkHandle {
+    shutdown_tx: broadcast::Sender<()>,
+}
+
+impl NetworkHandle {
+    pub async fn shutdown(&self) -> Result<(), NetworkError> {
+        self.shutdown_tx
+            .send(())
+            .map_err(|e| NetworkError::ShutdownError(e.to_string()))?;
+        Ok(())
+    }
 }
 
 impl NetworkManager {
-    pub fn new(port: u16) -> Self {
-        Self {
-            clients: Vec::new(),
-            port,
-        }
+    pub fn new(port: u16) -> (Self, NetworkHandle) {
+        let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
+        (
+            Self {
+                clients: Vec::new(),
+                port,
+                shutdown_rx,
+            },
+            NetworkHandle { shutdown_tx },
+        )
     }
 
     pub async fn start(&mut self) -> Result<(), NetworkError> {
@@ -23,56 +43,67 @@ impl NetworkManager {
             .map_err(|e| NetworkError::BindError(e, self.port))?;
 
         loop {
-            let (stream, _) = listener.accept().await.map_err(NetworkError::AcceptError)?;
-            let client = Client::new(Arc::new(Mutex::new(stream)));
-            println!(
-                "New client connected: {:?}",
-                client.stream.lock().await.peer_addr()
-            );
-            self.clients.push(client);
+            tokio::select! {
+                _ = self.shutdown_rx.recv() => {
+                    println!("Shutting down network manager.");
+                    self.shutdown().await;
+                    return Ok(());
+                }
+                result = listener.accept() => {
+                    if let Ok((stream, _)) = result {
+                        println!("New client connected: {:?}", stream.peer_addr());
+                        let client = Client::new(Arc::new(Mutex::new(stream)));
+                        self.clients.push(client);
+                    } else {
+                        println!("Error accepting connection: {:?}", result.err());
+                    }
+                }
+            };
         }
     }
 
-    pub async fn stop(&mut self) -> Result<(), NetworkError> {
+    pub async fn shutdown(&mut self) {
         println!("Stopping network manager on port {}", self.port);
         for mut client in self.clients.drain(..) {
-            client.stop().await.unwrap();
+            let result = client.stop().await;
+            match result {
+                Ok(_) => println!(
+                    "Client disconnected: {:?}",
+                    client.stream.lock().await.peer_addr()
+                ),
+                Err(e) => println!("Error stopping client: {:?}", e),
+            }
         }
-        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::net::TcpStream;
     use tokio::time::Duration;
 
     const DEFAULT_PORT: u16 = 3344;
 
     #[tokio::test]
     async fn test_manager_new() {
-        let mut manager = NetworkManager::new(DEFAULT_PORT);
+        let (mut manager, handle) = NetworkManager::new(DEFAULT_PORT);
         // share the manager with the test
-        let mut manager_clone = manager.clone();
         tokio::spawn(async move {
-            let result = manager_clone.start().await;
+            let result = manager.start().await;
             assert!(result.is_ok());
         });
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let result = manager.stop().await;
+        assert!(handle.shutdown().await.is_ok());
     }
 
     #[tokio::test]
-    async fn test_manager_start_with_port_and_client() {
-        let mut manager = NetworkManager::new(12345);
-        let mut manager_clone = manager.clone();
+    async fn test_manager_start_and_shutdown() {
+        let (mut manager, handle) = NetworkManager::new(12345);
         tokio::spawn(async move {
-            let result = manager_clone.start().await;
+            let result = manager.start().await;
             assert!(result.is_ok());
         });
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let result = manager.stop().await;
-        assert!(result.is_ok());
+        assert!(handle.shutdown().await.is_ok());
     }
 }

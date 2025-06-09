@@ -15,6 +15,6 @@ pub enum NetworkError {
     BindError(std::io::Error, u16),
     #[error("Failed to accept connection: {0}")]
     AcceptError(std::io::Error),
-    #[error("Failed to shutdown connection: {0}")]
-    ShutdownError(std::io::Error),
+    #[error("Failed to shutdown the server: {0}")]
+    ShutdownError(String),
 }
