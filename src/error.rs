@@ -9,6 +9,8 @@ pub enum BotError {
     NetworkError(#[from] NetworkError),
     #[error("Client Error: {0}")]
     ClientError(#[from] ClientError),
+    #[error("Frame Error: {0}")]
+    FrameError(#[from] FrameError),
 }
 
 // Network Error Type
@@ -34,4 +36,12 @@ pub enum ClientError {
     ShutdownError(Uuid),
     #[error("Failed to stop client: {0}")]
     StopError(NetworkError),
+}
+
+#[derive(Error, Debug)]
+pub enum FrameError {
+    #[error("Invalid frame length, expected at least 5 bytes, got {0}")]
+    InvalidFrameLength(usize),
+    #[error("Invalid frame tag, got {0}")]
+    InvalidFrameTag(u8),
 }
