@@ -1,3 +1,5 @@
+use std::{array::TryFromSliceError, string::FromUtf8Error};
+
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -44,4 +46,18 @@ pub enum FrameError {
     InvalidFrameLength(usize),
     #[error("Invalid frame tag, got {0}")]
     InvalidFrameTag(u8),
+    #[error("Invalid program, got {0}")]
+    InvalidProgram(TryFromSliceError),
+    #[error("Invalid version, got {0}")]
+    InvalidVersion(TryFromSliceError),
+    #[error("Invalid name length, got {0}")]
+    InvalidNameLength(TryFromSliceError),
+    #[error("Invalid name, got {0}")]
+    InvalidName(FromUtf8Error),
+    #[error("Invalid width, got {0}")]
+    InvalidWidth(TryFromSliceError),
+    #[error("Invalid height, got {0}")]
+    InvalidHeight(TryFromSliceError),
+    #[error("Invalid pixels length, got {0}x{1} = {2}, expected {3}")]
+    InvalidPixelsLength(u32, u32, usize, usize),
 }

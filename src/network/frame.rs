@@ -3,6 +3,11 @@ use crate::error::FrameError;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Frame {
     Ping,
+    Handshake {
+        version: u32,
+        name: String,
+        program: u16,
+    },
     Image {
         width: u32,
         height: u32,
@@ -22,12 +27,40 @@ impl TryFrom<&[u8]> for Frame {
         match tag {
             0 => Ok(Frame::Ping),
             1 => {
-                let width = u32::from_le_bytes(slice[1..5].try_into().unwrap());
-                let height = u32::from_le_bytes(slice[5..9].try_into().unwrap());
+                let version =
+                    u32::from_le_bytes(slice[1..5].try_into().map_err(FrameError::InvalidVersion)?);
+                let name_length = u16::from_le_bytes(
+                    slice[5..7]
+                        .try_into()
+                        .map_err(FrameError::InvalidNameLength)?,
+                );
+                let name = String::from_utf8(slice[7..7 + name_length as usize].to_vec())
+                    .map_err(FrameError::InvalidName)?;
+                let program = u16::from_le_bytes(
+                    slice[7 + name_length as usize..7 + name_length as usize + 2] // TODO: check if this is correct
+                        .try_into()
+                        .map_err(FrameError::InvalidProgram)?,
+                );
+                Ok(Frame::Handshake {
+                    version,
+                    name,
+                    program,
+                })
+            }
+            2 => {
+                let width =
+                    u32::from_le_bytes(slice[1..5].try_into().map_err(FrameError::InvalidWidth)?);
+                let height =
+                    u32::from_le_bytes(slice[5..9].try_into().map_err(FrameError::InvalidHeight)?);
                 let pixels = slice[9..].to_vec();
                 // verify the pixels match the width and height
                 if pixels.len() != (width * height) as usize {
-                    return Err(FrameError::InvalidFrameLength(slice.len()));
+                    return Err(FrameError::InvalidPixelsLength(
+                        width,
+                        height,
+                        (width * height) as usize,
+                        pixels.len(),
+                    ));
                 }
                 Ok(Frame::Image {
                     width,
@@ -35,7 +68,7 @@ impl TryFrom<&[u8]> for Frame {
                     pixels,
                 })
             }
-            2 => Ok(Frame::Shutdown),
+            3 => Ok(Frame::Shutdown),
             _ => Err(FrameError::InvalidFrameTag(tag)),
         }
     }
@@ -43,6 +76,7 @@ impl TryFrom<&[u8]> for Frame {
 
 pub trait FrameHandler: Send + Sync + 'static {
     fn handle_ping(&self) -> Result<(), FrameError>;
+    fn handle_handshake(&self, version: u32, name: String, program: u16) -> Result<(), FrameError>;
     fn handle_image(&self, width: u32, height: u32, pixels: Vec<u8>) -> Result<(), FrameError>;
     fn handle_shutdown(&self) -> Result<(), FrameError>;
 }
@@ -56,6 +90,11 @@ impl<H: FrameHandler> DelegatingRouter<H> {
         let frame = Frame::try_from(data)?;
         match frame {
             Frame::Ping => self.handler.handle_ping(),
+            Frame::Handshake {
+                version,
+                name,
+                program,
+            } => self.handler.handle_handshake(version, name, program),
             Frame::Image {
                 width,
                 height,
@@ -71,12 +110,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_frame_try_from() {
+    fn test_frame_try_from_ping() {
         let data: [u8; 10] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         let frame = Frame::try_from(&data[..]).unwrap();
         assert_eq!(frame, Frame::Ping);
+    }
+    #[test]
+    fn test_frame_try_from_handshake() {
+        let data: [u8; 14] = [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        let frame = Frame::try_from(&data[..]);
+        if let Ok(frame) = frame {
+            assert_eq!(
+                frame,
+                Frame::Handshake {
+                    version: 1,
+                    name: String::new(),
+                    program: 0,
+                }
+            );
+        } else {
+            panic!("Error: {:?}", frame.unwrap_err().to_string());
+        }
+    }
 
-        let data: [u8; 9] = [1, 0, 0, 0, 0, 0, 0, 0, 0];
+    #[test]
+    fn test_frame_try_from_image() {
+        let data: [u8; 9] = [2, 0, 0, 0, 0, 0, 0, 0, 0];
         let frame = Frame::try_from(&data[..]).unwrap();
         assert_eq!(
             frame,
@@ -86,12 +145,18 @@ mod tests {
                 pixels: vec![],
             }
         );
+    }
 
-        let data: [u8; 10] = [2, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    #[test]
+    fn test_frame_try_from_shutdown() {
+        let data: [u8; 10] = [3, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         let frame = Frame::try_from(&data[..]).unwrap();
         assert_eq!(frame, Frame::Shutdown);
+    }
 
-        let data: [u8; 10] = [3, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    #[test]
+    fn test_frame_try_from_invalid_tag() {
+        let data: [u8; 10] = [4, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         let frame = Frame::try_from(&data[..]);
         assert!(frame.is_err());
     }
@@ -104,15 +169,8 @@ mod tests {
     }
 
     #[test]
-    fn test_frame_try_from_invalid_tag() {
-        let data: [u8; 5] = [3, 0, 0, 0, 0];
-        let frame = Frame::try_from(&data[..]);
-        assert!(frame.is_err());
-    }
-
-    #[test]
     fn test_frame_try_from_invalid_pixels() {
-        let data: [u8; 10] = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        let data: [u8; 10] = [2, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         let frame = Frame::try_from(&data[..]);
         assert!(frame.is_err());
     }
