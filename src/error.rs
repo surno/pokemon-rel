@@ -17,4 +17,6 @@ pub enum NetworkError {
     AcceptError(std::io::Error),
     #[error("Failed to shutdown the server: {0}")]
     ShutdownError(String),
+    #[error("The server is already started.")]
+    AlreadyStarted,
 }

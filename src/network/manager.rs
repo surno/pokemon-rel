@@ -49,12 +49,15 @@ impl NetworkManager {
 
     pub async fn start(&mut self) -> Result<(), NetworkError> {
         println!("Starting network manager on port {}", self.port);
-        let mut shutdown_rx = self.shutdown_tx.subscribe();
+        if self.listener.is_some() {
+            return Err(NetworkError::AlreadyStarted);
+        }
         self.listener = Some(
             TcpListener::bind(format!("0.0.0.0:{}", self.port))
                 .await
                 .map_err(|e| NetworkError::BindError(e, self.port))?,
         );
+        let mut shutdown_rx = self.shutdown_tx.subscribe();
         loop {
             tokio::select! {
                 _ = shutdown_rx.recv() => {
@@ -141,5 +144,15 @@ mod tests {
         });
         tokio::time::sleep(Duration::from_secs(1)).await;
         assert_eq!(handle.get_client_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_manager_start_and_shutdown_twice() {
+        let (mut manager, _) = NetworkManager::new(DEFAULT_PORT);
+        tokio::spawn(async move {
+            let _ = manager.start();
+            let result = manager.start().await;
+            assert!(result.is_ok());
+        });
     }
 }
