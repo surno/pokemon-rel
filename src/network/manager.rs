@@ -87,7 +87,14 @@ impl NetworkManager {
                 Err(e) => println!("Error stopping client: {:?}", e),
             }
         }
-        self.listener = None;
+        match self.listener.take() {
+            Some(listener) => {
+                drop(listener);
+            }
+            None => {
+                println!("No listener to shutdown");
+            }
+        }
     }
 }
 
