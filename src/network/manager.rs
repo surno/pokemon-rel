@@ -1,24 +1,24 @@
+use crate::network::ClientHandle;
 use crate::{Client, NetworkError};
 use std::sync::Arc;
 use tokio::{
     net::{TcpListener, TcpStream},
-    sync::Mutex,
     sync::RwLock,
     sync::broadcast,
 };
 
 #[derive(Debug)]
 pub struct NetworkManager {
-    clients: Arc<RwLock<Vec<Client>>>,
+    client_handles: Arc<RwLock<Vec<ClientHandle>>>,
     port: u16,
     shutdown_tx: broadcast::Sender<()>,
     listener: Option<TcpListener>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct NetworkHandle {
     shutdown_tx: broadcast::Sender<()>,
-    clients: Arc<RwLock<Vec<Client>>>,
+    client_handles: Arc<RwLock<Vec<ClientHandle>>>,
 }
 
 impl NetworkHandle {
@@ -30,24 +30,24 @@ impl NetworkHandle {
     }
 
     pub async fn get_client_count(&self) -> usize {
-        self.clients.read().await.len()
+        self.client_handles.read().await.len()
     }
 }
 
 impl NetworkManager {
     pub fn new(port: u16) -> (Self, NetworkHandle) {
         let (shutdown_tx, _) = broadcast::channel(1);
-        let clients = Arc::new(RwLock::new(Vec::new()));
+        let client_handles = Arc::new(RwLock::new(Vec::new()));
         (
             Self {
-                clients: clients.clone(),
+                client_handles: client_handles.clone(),
                 port,
                 shutdown_tx: shutdown_tx.clone(),
                 listener: None,
             },
             NetworkHandle {
                 shutdown_tx,
-                clients,
+                client_handles,
             },
         )
     }
@@ -83,16 +83,16 @@ impl NetworkManager {
 
     pub async fn spawn_client_pipeline(&self, stream: TcpStream) {
         let addr = stream.peer_addr().unwrap();
-        let client = Client::new(Arc::new(Mutex::new(stream)));
+        let (client, client_handle) = Client::new(stream);
         let client_id = client.id();
         println!(
             "New client attempting to connect: {:?} from {:?}",
             client_id, addr
         );
 
-        self.clients.write().await.push(client.clone());
+        self.client_handles.write().await.push(client_handle);
 
-        let clients_for_cleanup = self.clients.clone();
+        let clients_for_cleanup = self.client_handles.clone();
         tokio::spawn(async move {
             println!("Starting client pipeline for {:?}", client_id);
             let mut client = client;
@@ -108,7 +108,7 @@ impl NetworkManager {
             clients_for_cleanup
                 .write()
                 .await
-                .retain(|c| c.id() != client_id);
+                .retain(|c| c.id != client_id);
             println!("Client disconnected: {:?} from {:?}", client_id, addr);
         });
         println!("Client connected: {:?} from {:?}", client_id, addr);
@@ -116,10 +116,10 @@ impl NetworkManager {
 
     pub async fn shutdown(&mut self) {
         println!("Stopping network manager on port {}", self.port);
-        for mut client in self.clients.write().await.drain(..) {
-            let result = client.stop().await;
+        for client_handle in self.client_handles.write().await.drain(..) {
+            let result = client_handle.send_shutdown().await;
             match result {
-                Ok(_) => println!("Client disconnected: {:?}", client.id()),
+                Ok(_) => println!("Client disconnected: {:?}", client_handle.id),
                 Err(e) => println!("Error stopping client: {:?}", e),
             }
         }

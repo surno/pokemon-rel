@@ -1,4 +1,5 @@
 use thiserror::Error;
+use uuid::Uuid;
 
 // Main Applicaiton Error Type
 
@@ -29,4 +30,8 @@ pub enum ClientError {
     ReadError(std::io::Error),
     #[error("Failed to write message: {0}")]
     WriteError(std::io::Error),
+    #[error("Failed to send shutdown to client handle: {0}")]
+    ShutdownError(Uuid),
+    #[error("Failed to stop client: {0}")]
+    StopError(NetworkError),
 }
