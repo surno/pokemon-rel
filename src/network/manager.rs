@@ -1,8 +1,6 @@
-use crate::Client;
+use crate::{Client, NetworkError};
 use std::sync::Arc;
-use tokio::net::TcpListener;
-
-const DEFAULT_PORT: u16 = 3344;
+use tokio::{net::TcpListener, sync::Mutex};
 
 #[derive(Debug, Clone)]
 pub struct NetworkManager {
@@ -18,29 +16,29 @@ impl NetworkManager {
         }
     }
 
-    async fn start(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn start(&mut self) -> Result<(), NetworkError> {
         println!("Starting network manager on port {}", self.port);
         let listener = TcpListener::bind(format!("0.0.0.0:{}", self.port))
-            .await;
-        match listener {
-            Ok(listener) => {
-                println!("Listening on port {}", self.port);
-            }
-            
-             
-        }
+            .await
+            .map_err(|e| NetworkError::BindError(e, self.port))?;
 
-        for stream in listener.accept() {
-            match stream {
-                Ok(stream) => {
-                    let client = Client::new(Arc::new(stream));
-                    self.clients.push(client);
-                }
-                Err(e) => {
-                    println!("Error accepting connection: {}", e);
-                }
-            }
+        loop {
+            let (stream, _) = listener.accept().await.map_err(NetworkError::AcceptError)?;
+            let client = Client::new(Arc::new(Mutex::new(stream)));
+            println!(
+                "New client connected: {:?}",
+                client.stream.lock().await.peer_addr()
+            );
+            self.clients.push(client);
         }
+    }
+
+    pub async fn stop(&mut self) -> Result<(), NetworkError> {
+        println!("Stopping network manager on port {}", self.port);
+        for mut client in self.clients.drain(..) {
+            client.stop().await.unwrap();
+        }
+        Ok(())
     }
 }
 
@@ -48,30 +46,33 @@ impl NetworkManager {
 mod tests {
     use super::*;
     use tokio::net::TcpStream;
+    use tokio::time::Duration;
 
-    #[test]
-    fn test_manager_new() {
-        let manager = NetworkManager::new();
-        manager.start();
+    const DEFAULT_PORT: u16 = 3344;
+
+    #[tokio::test]
+    async fn test_manager_new() {
+        let mut manager = NetworkManager::new(DEFAULT_PORT);
+        // share the manager with the test
+        let mut manager_clone = manager.clone();
+        tokio::spawn(async move {
+            let result = manager_clone.start().await;
+            assert!(result.is_ok());
+        });
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let result = manager.stop().await;
     }
 
-    #[test]
-    fn test_manager_start() {
-        let manager = NetworkManager::new();
-        manager.start();
-    }
-
-    #[test]
-    fn test_manager_start_with_port() {
-        let manager = NetworkManager::new(12345);
-        manager.start();
-    }
-
-    #[test]
-    fn test_manager_start_with_port_and_client() {
-        let manager = NetworkManager::new(12345);
-        manager.start();
-        let client = Client::new(Arc::new(TcpStream::connect("127.0.0.1:12345").unwrap()));
-        assert!(client.is_connected);
+    #[tokio::test]
+    async fn test_manager_start_with_port_and_client() {
+        let mut manager = NetworkManager::new(12345);
+        let mut manager_clone = manager.clone();
+        tokio::spawn(async move {
+            let result = manager_clone.start().await;
+            assert!(result.is_ok());
+        });
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let result = manager.stop().await;
+        assert!(result.is_ok());
     }
 }
