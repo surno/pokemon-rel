@@ -26,9 +26,8 @@ impl NetworkManager {
             Ok(listener) => {
                 println!("Listening on port {}", self.port);
             }
-            Err(e) => {
-                println!("Error binding to port {}: {}", self.port, e);
-            }   
+            
+             
         }
 
         for stream in listener.accept() {
