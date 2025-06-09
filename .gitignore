@@ -57,3 +57,7 @@ Thumbs.db
 # Project specific
 frame*.png
 pokemon_shiny_model*
+
+#rust ignore
+target/
+Cargo.lock  
