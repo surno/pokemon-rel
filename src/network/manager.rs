@@ -1,6 +1,11 @@
 use crate::{Client, NetworkError};
 use std::sync::Arc;
-use tokio::{net::TcpListener, sync::Mutex, sync::RwLock, sync::broadcast};
+use tokio::{
+    net::{TcpListener, TcpStream},
+    sync::Mutex,
+    sync::RwLock,
+    sync::broadcast,
+};
 
 #[derive(Debug)]
 pub struct NetworkManager {
@@ -67,9 +72,7 @@ impl NetworkManager {
                 }
                 result = self.listener.as_ref().unwrap().accept() => {
                     if let Ok((stream, _)) = result {
-                        println!("New client connected: {:?}", stream.peer_addr());
-                        let client = Client::new(Arc::new(Mutex::new(stream)));
-                        self.clients.write().await.push(client);
+                        self.spawn_client_pipeline(stream).await;
                     } else {
                         println!("Error accepting connection: {:?}", result.err());
                     }
@@ -78,15 +81,45 @@ impl NetworkManager {
         }
     }
 
+    pub async fn spawn_client_pipeline(&self, stream: TcpStream) {
+        let addr = stream.peer_addr().unwrap();
+        let client = Client::new(Arc::new(Mutex::new(stream)));
+        let client_id = client.id();
+        println!(
+            "New client attempting to connect: {:?} from {:?}",
+            client_id, addr
+        );
+
+        self.clients.write().await.push(client.clone());
+
+        let clients_for_cleanup = self.clients.clone();
+        tokio::spawn(async move {
+            println!("Starting client pipeline for {:?}", client_id);
+            let mut client = client;
+            let result = client.run_pipeline().await;
+            match result {
+                Ok(_) => {
+                    println!("Client pipeline for {:?} finished successfully", client_id);
+                }
+                Err(e) => {
+                    println!("Error running client pipeline for {:?}: {:?}", client_id, e);
+                }
+            }
+            clients_for_cleanup
+                .write()
+                .await
+                .retain(|c| c.id() != client_id);
+            println!("Client disconnected: {:?} from {:?}", client_id, addr);
+        });
+        println!("Client connected: {:?} from {:?}", client_id, addr);
+    }
+
     pub async fn shutdown(&mut self) {
         println!("Stopping network manager on port {}", self.port);
         for mut client in self.clients.write().await.drain(..) {
             let result = client.stop().await;
             match result {
-                Ok(_) => println!(
-                    "Client disconnected: {:?}",
-                    client.stream.lock().await.peer_addr()
-                ),
+                Ok(_) => println!("Client disconnected: {:?}", client.id()),
                 Err(e) => println!("Error stopping client: {:?}", e),
             }
         }

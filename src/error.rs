@@ -6,6 +6,8 @@ use thiserror::Error;
 pub enum BotError {
     #[error("Network Error: {0}")]
     NetworkError(#[from] NetworkError),
+    #[error("Client Error: {0}")]
+    ClientError(#[from] ClientError),
 }
 
 // Network Error Type
@@ -19,4 +21,12 @@ pub enum NetworkError {
     ShutdownError(String),
     #[error("The server is already started.")]
     AlreadyStarted,
+}
+
+#[derive(Error, Debug)]
+pub enum ClientError {
+    #[error("Failed to read message: {0}")]
+    ReadError(std::io::Error),
+    #[error("Failed to write message: {0}")]
+    WriteError(std::io::Error),
 }
