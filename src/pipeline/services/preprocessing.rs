@@ -1,7 +1,14 @@
-use crate::pipeline::types::RawFrame;
+use crate::error::PreprocessingError;
+use crate::pipeline::types::{EnrichedFrame, GameState, RawFrame};
+use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
 use tower::Service;
 
 #[derive(Debug, Clone)]
+pub struct PreprocessingService;
+
 impl Service<RawFrame> for PreprocessingService {
     type Response = EnrichedFrame;
     type Error = PreprocessingError;
@@ -13,7 +20,10 @@ impl Service<RawFrame> for PreprocessingService {
 
     fn call(&mut self, request: RawFrame) -> Self::Future {
         Box::pin(async move {
-            let game_state = GameState::new(0.0, 0.0, 0);
+            let game_state = GameState {
+                player_position: (0.0, 0.0),
+                pokemon_count: 0,
+            };
             let features = vec![];
 
             Ok(EnrichedFrame {
