@@ -61,3 +61,9 @@ pub enum FrameError {
     #[error("Invalid pixels length, got {0}x{1} = {2}, expected {3}")]
     InvalidPixelsLength(u32, u32, usize, usize),
 }
+
+#[derive(Error, Debug)]
+pub enum PreprocessingError {
+    #[error("Failed to preprocess frame: {0}")]
+    PreprocessingError(String),
+}

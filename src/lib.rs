@@ -1,5 +1,6 @@
 pub mod error;
 pub mod network;
+pub mod pipeline;
 
 pub use error::{BotError, ClientError, NetworkError};
 
