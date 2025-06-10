@@ -41,6 +41,18 @@ pub enum ClientError {
 }
 
 #[derive(Error, Debug)]
+pub enum PipelineError {
+    #[error("Failed to process frame: {0}")]
+    FrameError(#[from] FrameError),
+    #[error("Failed to preprocess frame: {0}")]
+    PreprocessingError(#[from] PreprocessingError),
+    #[error("Failed to predict: {0}")]
+    RLServiceError(#[from] RLServiceError),
+    #[error("Failed to select action: {0}")]
+    ActionServiceError(#[from] ActionServiceError),
+}
+
+#[derive(Error, Debug)]
 pub enum FrameError {
     #[error("Invalid frame length, expected at least 5 bytes, got {0}")]
     InvalidFrameLength(usize),
