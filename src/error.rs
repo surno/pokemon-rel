@@ -67,3 +67,9 @@ pub enum PreprocessingError {
     #[error("Failed to preprocess frame: {0}")]
     PreprocessingError(String),
 }
+
+#[derive(Error, Debug)]
+pub enum RLServiceError {
+    #[error("Failed to predict: {0}")]
+    PredictionError(String),
+}
