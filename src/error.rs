@@ -73,3 +73,9 @@ pub enum RLServiceError {
     #[error("Failed to predict: {0}")]
     PredictionError(String),
 }
+
+#[derive(Error, Debug)]
+pub enum ActionServiceError {
+    #[error("Failed to select action: {0}")]
+    ActionSelectionError(String),
+}
