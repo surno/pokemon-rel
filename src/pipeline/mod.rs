@@ -1,5 +1,5 @@
-mod pipeline;
+mod ml_pipeline_service;
 mod services;
 mod types;
 
-pub use pipeline::Pipeline;
+pub use ml_pipeline_service::MLPipelineService;
