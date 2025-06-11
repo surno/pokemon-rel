@@ -1,6 +1,7 @@
 use crate::pipeline::types::{EnrichedFrame, GameAction, RLPrediction, RawFrame};
 use std::sync::Arc;
 
+#[derive(Debug, Clone)]
 pub struct SharedFrame {
     pub raw: Arc<RawFrame>,
     pub enriched: Option<Arc<EnrichedFrame>>,

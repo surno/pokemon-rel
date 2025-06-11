@@ -1,10 +1,18 @@
-use crate::pipeline::types::{RawFrame, SharedFrame};
-use std::collections::HashMap;
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+};
+
+use crate::pipeline::{
+    services::MLPipelineService,
+    types::{GameAction, RawFrame, SharedFrame},
+};
 use tokio::sync::broadcast;
 use tower::Service;
 
+#[derive(Debug)]
 pub struct FanoutService {
-    visualization_tx: broadcast::Sender<RawFrame>,
+    visualization_tx: broadcast::Sender<SharedFrame>,
     ml_service: MLPipelineService,
 }
 
@@ -34,10 +42,10 @@ impl Service<RawFrame> for FanoutService {
     fn call(&mut self, request: RawFrame) -> Self::Future {
         let shared_frame = SharedFrame::from(request.clone());
 
-        let _ = self.visualization_tx.send(shared_frame.raw.clone());
+        let _ = self.visualization_tx.send(shared_frame.clone());
 
-        let ml_future = self.ml_service.call(shared_frame.raw.clone());
+        let ml_future = self.ml_service.call(request.clone());
 
-        Box::pin(async move { ml_future.await })
+        Box::pin(ml_future)
     }
 }

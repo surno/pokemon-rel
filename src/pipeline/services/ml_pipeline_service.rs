@@ -14,6 +14,16 @@ pub struct MLPipelineService {
     action_service: ActionService,
 }
 
+impl MLPipelineService {
+    pub fn new() -> Self {
+        Self {
+            preprocessing_service: PreprocessingService,
+            rl_service: RLService,
+            action_service: ActionService,
+        }
+    }
+}
+
 impl Service<RawFrame> for MLPipelineService {
     type Response = GameAction;
     type Error = crate::error::PipelineError;
