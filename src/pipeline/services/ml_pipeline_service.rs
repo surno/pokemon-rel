@@ -7,7 +7,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use tower::Service;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MLPipelineService {
     preprocessing_service: PreprocessingService,
     rl_service: RLService,

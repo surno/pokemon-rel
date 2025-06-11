@@ -10,7 +10,7 @@ use crate::pipeline::{
 use tokio::sync::broadcast;
 use tower::Service;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FanoutService {
     visualization_tx: broadcast::Sender<SharedFrame>,
     ml_service: MLPipelineService,

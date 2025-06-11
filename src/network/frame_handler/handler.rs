@@ -4,7 +4,7 @@ use crate::network::frame::Frame;
 pub trait FrameHandler: Send + Sync + 'static {
     fn handle_ping(&self) -> Result<(), FrameError>;
     fn handle_handshake(&self, version: u32, name: String, program: u16) -> Result<(), FrameError>;
-    fn handle_image(&self, width: u32, height: u32, pixels: Vec<u8>) -> Result<(), FrameError>;
+    fn handle_image(&mut self, width: u32, height: u32, pixels: Vec<u8>) -> Result<(), FrameError>;
     fn handle_shutdown(&self) -> Result<(), FrameError>;
 }
 
@@ -13,7 +13,7 @@ pub struct DelegatingRouter<H: FrameHandler> {
 }
 
 impl<H: FrameHandler> DelegatingRouter<H> {
-    pub async fn route(&self, data: &[u8]) -> Result<(), FrameError> {
+    pub async fn route(&mut self, data: &[u8]) -> Result<(), FrameError> {
         let frame = Frame::try_from(data)?;
         match frame {
             Frame::Ping => self.handler.handle_ping(),

@@ -1,14 +1,20 @@
-use crate::error::FrameHandlerError;
-use crate::network::frame::Frame;
-use crate::pipeline::services::{ActionService, PreprocessingService, RLService};
-use crate::pipeline::types::{EnrichedFrame, GameAction, RLPrediction};
-use std::future::Future;
-use std::pin::Pin;
-use std::task::{Context, Poll};
+use crate::error::FrameError;
+use crate::network::frame_handler::FrameHandler;
+use crate::pipeline::services::FanoutService;
+use crate::pipeline::types::RawFrame;
 use tower::Service;
+use tracing::debug;
 
 #[derive(Debug, Clone)]
-pub struct PokemonFrameHandler {}
+pub struct PokemonFrameHandler {
+    fanout_service: FanoutService,
+}
+
+impl PokemonFrameHandler {
+    pub fn new(fanout_service: FanoutService) -> Self {
+        Self { fanout_service }
+    }
+}
 
 impl FrameHandler for PokemonFrameHandler {
     fn handle_ping(&self) -> Result<(), FrameError> {
@@ -24,8 +30,10 @@ impl FrameHandler for PokemonFrameHandler {
         Ok(())
     }
 
-    fn handle_image(&self, width: u32, height: u32, pixels: Vec<u8>) -> Result<(), FrameError> {
+    fn handle_image(&mut self, width: u32, height: u32, pixels: Vec<u8>) -> Result<(), FrameError> {
         debug!("Received image: width={}, height={}", width, height);
+        let raw_frame = RawFrame::new(width, height, pixels);
+        self.fanout_service.call(raw_frame);
         Ok(())
     }
 
