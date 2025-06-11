@@ -13,3 +13,10 @@ tower = { version = "0.5.2", features = ["util"] }
 tower-layer = { version = "0.3.3" }
 tracing = { version = "0.1.41" }
 uuid = { version = "1.13.0", features = ["v4"] }
+
+# Visualization dependencies
+egui_extras = { version = "0.31.1", features = ["all_loaders"] }
+egui = { version = "0.31.1" }
+eframe = { version = "0.31.1" }
+image = { version = "0.25" }
+tokio-stream = { version = "0.1" }

@@ -1,0 +1,174 @@
+use std::sync::Arc;
+
+use crate::pipeline::types::{RawFrame, SharedFrame};
+use egui::{Image, ImageData, TextureHandle, TextureOptions};
+use image::{ImageBuffer, Rgba};
+use tokio::sync::broadcast::Receiver;
+
+pub struct VisualizationApp {
+    frame_rx: Receiver<SharedFrame>,
+    current_frame: Option<SharedFrame>,
+    show_frame: bool,
+    show_prediction: bool,
+    show_game_state: bool,
+}
+
+impl VisualizationApp {
+    pub fn new(frame_rx: Receiver<SharedFrame>, _: &eframe::CreationContext<'_>) -> Self {
+        Self {
+            frame_rx,
+            current_frame: None,
+            show_frame: true,
+            show_prediction: true,
+            show_game_state: true,
+        }
+    }
+
+    pub async fn start_gui(frame_rx: Receiver<SharedFrame>) {
+        let options = eframe::NativeOptions {
+            viewport: egui::ViewportBuilder::default()
+                .with_inner_size(egui::vec2(1280.0, 720.0))
+                .with_title("PokeBot Visualization - Live Debug View"),
+            ..Default::default()
+        };
+
+        let _ = eframe::run_native(
+            "PokeBot Visualization - Live Debug View",
+            options,
+            Box::new(|cc| Ok(Box::new(VisualizationApp::new(frame_rx, cc)))),
+        );
+    }
+
+    fn convert_pixels_to_image(&self, frame: &RawFrame) -> ImageBuffer<Rgba<u8>, Vec<u8>> {
+        // Nintendo DS is 256x384
+        let width = 256;
+        let height = 384;
+
+        ImageBuffer::from_fn(width, height, |x, y| {
+            let idx = (y * width + x) as usize;
+            let pixel = frame.pixels.get(idx).copied().unwrap_or(0);
+            Rgba([pixel, pixel, pixel, 255])
+        })
+    }
+
+    fn draw_frame_info(&self, ui: &mut egui::Ui, frame: &SharedFrame) {
+        ui.group(|ui| {
+            ui.label("Frame Info");
+            ui.label(format!("Size: {}x{}", frame.raw.width, frame.raw.height));
+            ui.label(format!("Pixels: {:?} bytes", frame.raw.pixels.len()));
+            ui.label(format!("Timestamp: {:?}", frame.raw.timestamp));
+        });
+    }
+
+    fn draw_game_image(&self, ui: &mut egui::Ui, frame: &SharedFrame) {
+        ui.group(|ui| {
+            ui.label("Game Image");
+
+            let image = self.convert_pixels_to_image(&frame.raw);
+
+            let color_image = egui::ColorImage::from_rgba_unmultiplied(
+                [image.width() as usize, image.height() as usize],
+                image.into_raw().as_slice(),
+            );
+
+            let texture_handle =
+                ui.ctx()
+                    .load_texture("game_frame", color_image, TextureOptions::default());
+
+            ui.image(&texture_handle);
+        });
+    }
+
+    fn draw_prediction_info(&self, ui: &mut egui::Ui, frame: &SharedFrame) {
+        ui.group(|ui| {
+            ui.label("Prediction Info");
+            match frame.ml_prediction.as_ref() {
+                Some(prediction) => {
+                    ui.label(format!("Confidence: {:?}", prediction.confidence * 100.0));
+                }
+                None => {
+                    ui.label("No prediction available");
+                }
+            }
+
+            match frame.ml_prediction.as_ref() {
+                Some(prediction) => {
+                    ui.label(format!("Value Estimate: {:?}", prediction.value_estimate));
+
+                    for (i, &prob) in prediction.action_probabilities.iter().enumerate() {
+                        let button_match = match i {
+                            0 => "A",
+                            1 => "B",
+                            2 => "Up",
+                            3 => "Down",
+                            4 => "Left",
+                            5 => "Right",
+                            _ => "Unknown",
+                        };
+
+                        ui.horizontal(|ui| {
+                            ui.label(format!("{}: {:?}%", button_match, prob * 100.0));
+                            ui.add(egui::ProgressBar::new(prob).desired_width(100.0));
+                            ui.label(format!("{:.2}%", prob * 100.0));
+                        });
+                    }
+                }
+                None => {
+                    ui.label("No prediction available");
+                }
+            }
+        });
+    }
+
+    fn draw_game_state_info(&self, ui: &mut egui::Ui, frame: &SharedFrame) {
+        ui.group(|ui| {
+            ui.label("Game State Info");
+
+            match frame.game_action.as_ref() {
+                Some(action) => {
+                    ui.label(format!("Action: {:?}", action.action));
+                }
+                None => {
+                    ui.label("No action available");
+                }
+            }
+        });
+    }
+}
+
+impl eframe::App for VisualizationApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // first, try to get the latest frame
+        if let Ok(frame) = self.frame_rx.try_recv() {
+            self.current_frame = Some(frame);
+        }
+
+        // Main UI
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.heading("PokeBot Visualization - Live Debug View");
+
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.show_frame, "Show Frame");
+                ui.checkbox(&mut self.show_prediction, "Show Prediction");
+                ui.checkbox(&mut self.show_game_state, "Show Game State");
+            });
+
+            ui.separator();
+
+            if let Some(ref frame) = self.current_frame {
+                self.draw_frame_info(ui, frame);
+                self.draw_game_image(ui, frame);
+
+                if self.show_prediction {
+                    self.draw_prediction_info(ui, frame);
+                }
+
+                if self.show_game_state {
+                    self.draw_game_state_info(ui, frame);
+                }
+            }
+        });
+
+        ctx.request_repaint();
+    }
+}
