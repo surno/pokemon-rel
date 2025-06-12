@@ -1,11 +1,14 @@
 use pokebot_rust::network::frame_handler::PokemonFrameHandler;
 use pokebot_rust::pipeline::services::FanoutService;
 use pokebot_rust::{NetworkManager, app::VisualizationApp};
-use tracing::info;
+use tracing::{Level, info};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt::init();
+    // enable debug logging
+    tracing_subscriber::fmt()
+        .with_max_level(Level::DEBUG)
+        .init();
 
     // Create fan-out service with visualization
     let (fanout_service, viz_receiver) = FanoutService::new(10);

@@ -1,4 +1,5 @@
-use crate::network::ClientHandle;
+use crate::network::{ClientHandle, frame_handler::PokemonFrameHandler};
+use crate::pipeline::services::FanoutService;
 use crate::{Client, NetworkError};
 use std::sync::Arc;
 use tokio::{
@@ -84,7 +85,10 @@ impl NetworkManager {
 
     pub async fn spawn_client_pipeline(&self, stream: TcpStream) {
         let addr = stream.peer_addr().unwrap();
-        let (client, client_handle) = Client::new(stream);
+        let (client, client_handle) = Client::new(
+            stream,
+            Box::new(PokemonFrameHandler::new(FanoutService::new(10).0)),
+        );
         let client_id = client.id();
         info!(
             "New client attempting to connect: {:?} from {:?}",

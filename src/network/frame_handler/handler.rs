@@ -1,7 +1,8 @@
 use crate::error::FrameError;
 use crate::network::frame::Frame;
+use std::fmt::Debug;
 
-pub trait FrameHandler: Send + Sync + 'static {
+pub trait FrameHandler: Send + Sync + 'static + Debug {
     fn handle_ping(&self) -> Result<(), FrameError>;
     fn handle_handshake(&self, version: u32, name: String, program: u16) -> Result<(), FrameError>;
     fn handle_image(&mut self, width: u32, height: u32, pixels: Vec<u8>) -> Result<(), FrameError>;

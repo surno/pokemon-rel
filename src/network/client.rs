@@ -1,4 +1,4 @@
-use crate::{ClientError, NetworkError};
+use crate::{ClientError, NetworkError, network::frame_handler::FrameHandler};
 use tokio::{
     io::{AsyncWriteExt, Interest},
     net::TcpStream,
@@ -12,6 +12,7 @@ pub struct Client {
     id: Uuid,
     stream: TcpStream,
     shutdown_tx: Sender<()>,
+    handler: Box<dyn FrameHandler>,
 }
 
 #[derive(Debug)]
@@ -37,7 +38,7 @@ impl ClientHandle {
 }
 
 impl Client {
-    pub fn new(stream: TcpStream) -> (Self, ClientHandle) {
+    pub fn new(stream: TcpStream, handler: Box<dyn FrameHandler>) -> (Self, ClientHandle) {
         let (shutdown_tx, _) = broadcast::channel(1);
         let id = Uuid::new_v4();
         (
@@ -45,6 +46,7 @@ impl Client {
                 id,
                 stream,
                 shutdown_tx: shutdown_tx.clone(),
+                handler,
             },
             ClientHandle { id, shutdown_tx },
         )
@@ -63,7 +65,10 @@ impl Client {
             .map_err(ClientError::ReadError)?;
 
         match self.stream.try_read(&mut buf) {
-            Ok(_) => Ok(true),
+            Ok(_) => {
+                debug!("Client {:?} received message: {:?}", self.id, buf);
+                Ok(true)
+            }
             Err(e) => {
                 if e.kind() == std::io::ErrorKind::WouldBlock {
                     Ok(false)
@@ -129,6 +134,9 @@ impl Client {
 
 #[cfg(test)]
 mod tests {
+    use crate::network::frame_handler::PokemonFrameHandler;
+    use crate::pipeline::services::FanoutService;
+
     use super::*;
     use std::{net::SocketAddr, time::Duration};
     use tokio::net::TcpListener;
@@ -173,7 +181,10 @@ mod tests {
         let client = listener.accept().await;
         assert!(client.is_ok());
         let (stream, _) = client.unwrap();
-        let (mut client, handle) = Client::new(stream);
+        let (mut client, handle) = Client::new(
+            stream,
+            Box::new(PokemonFrameHandler::new(FanoutService::new(10).0)),
+        );
         let pipeline_task = tokio::spawn(async move {
             let result = client.run_pipeline().await;
             assert!(result.is_ok());
