@@ -98,7 +98,7 @@ impl FrameReader {
                     self.state = ReadState::WaitingForLength;
 
                     // Successfully read frame data
-                    debug!("Got Frame {} bytes", frame_data.len());
+                    // Frame read successfully (verbose logging removed)
 
                     // Parse frame first
                     let frame_result = Frame::try_from(frame_data.as_slice());

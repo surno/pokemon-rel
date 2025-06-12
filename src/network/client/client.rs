@@ -63,7 +63,7 @@ impl Client {
 
         match self.reader.read_frame().await {
             Ok(frame) => {
-                debug!("Client {:?} received frame", self.id);
+                // Frame received (verbose logging removed)
                 self.router
                     .route(&frame)
                     .await

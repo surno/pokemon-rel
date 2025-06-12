@@ -6,8 +6,7 @@ use pokebot_rust::{
 };
 use tracing::Level;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     // enable debug logging
     tracing_subscriber::fmt()
         .with_max_level(Level::DEBUG)
@@ -16,14 +15,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Shared client manager using tokio::sync::RwLock
     let client_manager = Arc::new(tokio::sync::RwLock::new(ClientManager::new()));
 
-    // Start network manager
+    // Start tokio runtime and network manager in a separate thread
     let network_client_manager = client_manager.clone();
-    tokio::spawn(async move {
-        let (mut manager, _) = NetworkManager::new(3344, network_client_manager);
-        manager.start().await.unwrap();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let (mut manager, _) = NetworkManager::new(3344, network_client_manager);
+            manager.start().await.unwrap();
+        });
     });
 
-    // Start GUI using the same shared client manager
+    // Run GUI on the main thread (required by macOS)
     let _app = MultiClientApp::new(client_manager);
     MultiClientApp::start_gui();
 
