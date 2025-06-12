@@ -53,12 +53,13 @@ impl TryFrom<&[u8]> for Frame {
                 let height =
                     u32::from_le_bytes(slice[5..9].try_into().map_err(FrameError::InvalidHeight)?);
                 let pixels = slice[9..].to_vec();
-                // verify the pixels match the width and height
-                if pixels.len() != (width * height) as usize {
+                // verify the pixels match the width and height for RGB format (3 bytes per pixel)
+                let expected_rgb_size = (width * height * 3) as usize;
+                if pixels.len() != expected_rgb_size {
                     return Err(FrameError::InvalidPixelsLength(
                         width,
                         height,
-                        (width * height) as usize,
+                        expected_rgb_size,
                         pixels.len(),
                     ));
                 }
@@ -139,8 +140,24 @@ mod tests {
 
     #[test]
     fn test_frame_try_from_invalid_pixels() {
-        let data: [u8; 10] = [2, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        // Test case: 1x1 image should need 3 bytes (RGB), but we only provide 1 byte
+        let data: [u8; 10] = [2, 1, 0, 0, 0, 1, 0, 0, 0, 255]; // 1x1 image with 1 byte (should need 3)
         let frame = Frame::try_from(&data[..]);
         assert!(frame.is_err());
+    }
+
+    #[test]
+    fn test_frame_try_from_valid_rgb_pixels() {
+        // Test case: 1x1 RGB image with correct 3 bytes
+        let data: [u8; 12] = [2, 1, 0, 0, 0, 1, 0, 0, 0, 255, 128, 64]; // 1x1 image with RGB
+        let frame = Frame::try_from(&data[..]).unwrap();
+        assert_eq!(
+            frame,
+            Frame::Image {
+                width: 1,
+                height: 1,
+                pixels: vec![255, 128, 64],
+            }
+        );
     }
 }

@@ -93,6 +93,8 @@ impl Client {
                                 break;
                             }
                             debug!("Client pipeline for {:?} handled message", self.id);
+                            // send 12 byte action (dummy)
+
                         }
                         Err(e) => {
                             error!("Client pipeline for {:?} handled message: {:?}", self.id, e);

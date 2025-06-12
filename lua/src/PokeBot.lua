@@ -3,7 +3,7 @@
 -- Automatically reconnects and handles errors for overnight running
 -------------------------------------------------------------------
 local socket = require("socket")
-local HOST, PORT = "192.168.10.242", 5555
+local HOST, PORT = "192.168.10.242", 3344
 local sock = nil
 local connection_attempts = 0
 local max_reconnect_attempts = 5
@@ -23,6 +23,46 @@ local function le32(n)
         math.floor(n / 65536)     % 256,
         math.floor(n / 16777216)  % 256
     )
+end
+
+-- helper for 16-bit little-endian
+local function le16(n)
+    n = tonumber(n) or 0
+    return string.char(
+        n % 256,
+        math.floor(n / 256) % 256
+    )
+end
+
+-- Frame creation helper - matches Rust server's frame_reader expectations
+local function create_frame(tag, data)
+    local frame_data = string.char(tag) .. (data or "")
+    local length = le32(#frame_data)  -- 4-byte little-endian length
+    return length .. frame_data
+end
+
+-- Create handshake frame (useful for initial connection)
+local function create_handshake_frame(version, name, program)
+    version = version or 1
+    name = name or "PokemonLuaBot"
+    program = program or 0
+    
+    local version_bytes = le32(version)
+    local name_length_bytes = le16(#name)
+    local program_bytes = le16(program)
+    
+    local data = version_bytes .. name_length_bytes .. name .. program_bytes
+    return create_frame(1, data)  -- tag 1 = handshake
+end
+
+-- Create ping frame
+local function create_ping_frame()
+    return create_frame(0)  -- tag 0 = ping, no data
+end
+
+-- Create shutdown frame
+local function create_shutdown_frame()
+    return create_frame(3)  -- tag 3 = shutdown, no data
 end
 
 local frame_counter = 0
@@ -46,6 +86,16 @@ local function connect_to_server()
             local success, err = sock:connect(HOST, PORT)
             if success then
                 print("[Lua] ✅ Connected to server successfully!")
+                
+                -- -- Send handshake frame to identify this client
+                -- local handshake = create_handshake_frame(1, "PokemonBot_DeSmuME", 1001)
+                -- local handshake_result, handshake_err = sock:send(handshake)
+                -- if handshake_result then
+                --     print("[Lua] ✅ Handshake sent successfully!")
+                -- else
+                --     print(string.format("[Lua] ⚠️  Handshake failed: %s", handshake_err or "unknown"))
+                -- end
+                
                 connection_attempts = 0
                 consecutive_errors = 0
                 return true
@@ -105,18 +155,31 @@ local function send_frame_and_get_action()
     local top_pixels = top_raw:sub(8)  -- Skip "GD2" + 4-byte length
     local bot_pixels = bot_raw:sub(8)  -- Skip "GD2" + 4-byte length
     
-    -- Combine pixel data: top screen first (192 lines), then bottom screen (192 lines)
+    -- Combine RGB pixel data: top screen first (192 lines), then bottom screen (192 lines)
     local combined_pixels = top_pixels .. bot_pixels
-    local frame_tag = 2
-    local frame_data = le32(256) .. le32(384) .. combined_pixels
-
-    local blob = frame_tag .. le32(#frame_data) .. frame_data
     
+    -- Create image frame using helper function for consistency
+    local width, height = 256, 384
+    local image_data = le32(width) .. le32(height) .. combined_pixels
+    local blob = create_frame(2, image_data)  -- tag 2 = image frame
+    
+    local total_size = #blob
     if first_frame then
-        print(string.format("[Lua] Frame %d: Combined size=%d bytes", frame_counter, total_size))
-        print(string.format("[Lua] Top pixels: %d bytes, Bot pixels: %d bytes", #top_pixels, #bot_pixels))
-        local hex = combined_pixels:sub(1,16):gsub(".", function(c) return string.format("%02X ", c:byte()) end)
-        print("[Lua] First 16 bytes of combined pixels:", hex)
+        print(string.format("[Lua] Frame %d: Total frame size=%d bytes", frame_counter, total_size))
+        print(string.format("[Lua] Top screen RGB pixels: %d bytes, Bot screen RGB pixels: %d bytes", #top_pixels, #bot_pixels))
+        print(string.format("[Lua] Combined RGB pixels: %d bytes", #combined_pixels))
+        print(string.format("[Lua] Expected RGB pixels for 256x384: %d bytes", 256 * 384 * 3))
+        print(string.format("[Lua] Frame structure: length(4) + tag(1) + width(4) + height(4) + RGB_pixels(%d)", #combined_pixels))
+        
+        -- Show bytes per pixel to diagnose format
+        local total_screen_pixels = 256 * 384  -- Combined screen dimensions
+        if #combined_pixels > 0 then
+            local bytes_per_pixel = #combined_pixels / total_screen_pixels
+            print(string.format("[Lua] Detected format: %.1f bytes per pixel (expecting 3.0 for RGB)", bytes_per_pixel))
+        end
+        
+        local hex = combined_pixels:sub(1,15):gsub(".", function(c) return string.format("%02X ", c:byte()) end)
+        print("[Lua] First 15 bytes of RGB pixels (5 pixels = R1G1B1 R2G2B2...):", hex)
         first_frame = false
     end
     
@@ -133,7 +196,7 @@ local function send_frame_and_get_action()
     
     while send_attempts < max_send_attempts and not sent do
         send_attempts = send_attempts + 1
-        local result, err = sock:send(gd2_blob)
+        local result, err = sock:send(blob)
         
         if result then
             sent = true
@@ -166,7 +229,7 @@ local function send_frame_and_get_action()
     end
     
     if frame_counter % 100 == 0 then
-        print(string.format("[Lua] ✅ Sent frame %d (%d bytes)", frame_counter, #gd2_blob))
+        print(string.format("[Lua] ✅ Sent frame %d (%d bytes)", frame_counter, #blob))
     end
     
     -- Wait for 12-byte action response with retry logic
