@@ -107,10 +107,10 @@ local function send_frame_and_get_action()
     
     -- Combine pixel data: top screen first (192 lines), then bottom screen (192 lines)
     local combined_pixels = top_pixels .. bot_pixels
-    local total_size = #combined_pixels
-    
-    -- Create single GD2 blob with combined data
-    local gd2_blob = "GD2" .. le32(total_size) .. combined_pixels
+    local frame_tag = 2
+    local frame_data = le32(256) .. le32(384) .. combined_pixels
+
+    local blob = frame_tag .. le32(#frame_data) .. frame_data
     
     if first_frame then
         print(string.format("[Lua] Frame %d: Combined size=%d bytes", frame_counter, total_size))
