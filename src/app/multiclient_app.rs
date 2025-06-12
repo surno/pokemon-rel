@@ -47,7 +47,7 @@ impl MultiClientApp {
         let _result = eframe::run_native(
             "PokeBot Visualization - Multi Client View",
             options,
-            Box::new(|cc| Ok(Box::new(MultiClientApp::default()))),
+            Box::new(|_cc| Ok(Box::new(MultiClientApp::default()))),
         );
     }
 

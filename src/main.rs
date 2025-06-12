@@ -1,7 +1,5 @@
-use pokebot_rust::network::frame_handler::PokemonFrameHandler;
-use pokebot_rust::pipeline::services::FanoutService;
 use pokebot_rust::{NetworkManager, app::multiclient_app::MultiClientApp};
-use tracing::{Level, info};
+use tracing::Level;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

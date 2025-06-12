@@ -2,7 +2,6 @@ use crate::app::views::View;
 use crate::pipeline::types::{RawFrame, SharedFrame};
 use egui::TextureOptions;
 use image::{ImageBuffer, Rgba};
-use tokio::sync::mpsc::Receiver;
 use uuid::Uuid;
 
 pub struct ClientView {

@@ -13,11 +13,11 @@ impl Service<RLPrediction> for ActionService {
     type Error = ActionServiceError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, request: RLPrediction) -> Self::Future {
+    fn call(&mut self, _request: RLPrediction) -> Self::Future {
         Box::pin(async move {
             // TODO: Implement action selection logic
             // TODO: Implement action execution logic
