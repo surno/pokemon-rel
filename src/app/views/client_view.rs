@@ -1,7 +1,7 @@
 use crate::app::views::View;
 use crate::pipeline::types::{RawFrame, SharedFrame};
 use egui::TextureOptions;
-use image::{ImageBuffer, Rgba};
+use image::{ImageBuffer, Rgb};
 use uuid::Uuid;
 
 pub struct ClientView {
@@ -23,15 +23,18 @@ impl ClientView {
         }
     }
 
-    fn convert_pixels_to_image(&self, frame: &RawFrame) -> ImageBuffer<Rgba<u8>, Vec<u8>> {
+    fn convert_pixels_to_image(&self, frame: &RawFrame) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
         // Nintendo DS is 256x384
-        let width = 256;
-        let height = 384;
+        let width = frame.width;
+        let height = frame.height;
 
         ImageBuffer::from_fn(width, height, |x, y| {
-            let idx = (y * width + x) as usize;
-            let pixel = frame.pixels.get(idx).copied().unwrap_or(0);
-            Rgba([pixel, pixel, pixel, 255])
+            let idx = ((y * width + x) * 3) as usize;
+            // the first 3 bytes are the rgb values
+            let r = frame.pixels.get(idx).copied().unwrap_or(0);
+            let g = frame.pixels.get(idx + 1).copied().unwrap_or(0);
+            let b = frame.pixels.get(idx + 2).copied().unwrap_or(0);
+            Rgb([r, g, b])
         })
     }
 
@@ -50,7 +53,7 @@ impl ClientView {
 
             let image = self.convert_pixels_to_image(&frame.raw);
 
-            let color_image = egui::ColorImage::from_rgba_unmultiplied(
+            let color_image = egui::ColorImage::from_rgb(
                 [image.width() as usize, image.height() as usize],
                 image.into_raw().as_slice(),
             );

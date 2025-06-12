@@ -178,12 +178,14 @@ local function send_frame_and_get_action()
         if screen_file then
             local width, height = 256, 384
             local rgb = {}
+            -- peek the first pixel's four BGRA bytes
+
             for i = 1, #screens_raw, 4 do
-                -- GD2 pixel order is B G R A; convert to R G B
-                local b = screens_raw:byte(i)
-                local g = screens_raw:byte(i + 1)
-                local r = screens_raw:byte(i + 2)
-                rgb[#rgb + 1] = string.char(r, g, b)
+                -- GD2 pixel order is A R G B; convert to R G B
+                local r = screens_raw:byte(i + 1)         -- source order: B
+                local g = screens_raw:byte(i + 2)     -- source order: G
+                local b = screens_raw:byte(i + 3)     -- source order: R
+                rgb[#rgb + 1] = string.char(r, g, b)  -- write as R G B
             end
             local rgb_blob = table.concat(rgb)
             screen_file:write(string.format("P6 %d %d 255\n", width, height))
@@ -207,11 +209,11 @@ local function send_frame_and_get_action()
     local function convert_to_rgb_from_bgra(data)
         local pixels = {}
         for i = 1, #data, 4 do
-            -- GD2 pixel order is B G R A; convert to R G B
-            local b = data:byte(i)
-            local g = data:byte(i + 1)
-            local r = data:byte(i + 2)
-            pixels[#pixels + 1] = string.char(r, g, b)  -- Store as R G B
+            -- GD2 pixel order is A R G B; convert to R G B
+            local r = data:byte(i + 1)     -- source order: R
+            local g = data:byte(i + 2)     -- source order: G
+            local b = data:byte(i + 3)     -- source order: B
+            pixels[#pixels + 1] = string.char(r, g, b)  -- write as R G B
         end
         return table.concat(pixels)
     end

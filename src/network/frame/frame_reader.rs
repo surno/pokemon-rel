@@ -67,7 +67,7 @@ impl FrameReader {
 
                     let frame_length = u32::from_le_bytes(length_bytes);
 
-                    info!("Read frame length: {}", frame_length);
+                    debug!("Read frame length: {}", frame_length);
 
                     // Remove the length from the buffer, downstream doesn't need it anymore
                     self.buffer.drain(..4);
@@ -103,7 +103,7 @@ impl FrameReader {
                     // Frame read successfully (verbose logging removed)
 
                     // Parse frame first
-                    info!("Frame data size: {}", frame_data.len());
+                    debug!("Frame data size: {}", frame_data.len());
                     let frame_result = Frame::try_from(frame_data.as_slice());
 
                     // Send action response (expected by Lua client)
