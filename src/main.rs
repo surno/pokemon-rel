@@ -26,8 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Run GUI on the main thread (required by macOS)
-    let _app = MultiClientApp::new(client_manager);
-    MultiClientApp::start_gui();
+    MultiClientApp::start_gui(client_manager);
 
     Ok(())
 }

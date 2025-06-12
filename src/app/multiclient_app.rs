@@ -30,7 +30,7 @@ impl MultiClientApp {
         }
     }
 
-    pub fn start_gui() {
+    pub fn start_gui(client_manager: Arc<RwLock<ClientManager>>) {
         let options = eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
                 .with_inner_size(egui::vec2(1280.0, 720.0))
@@ -41,7 +41,7 @@ impl MultiClientApp {
         let _result = eframe::run_native(
             "PokeBot Visualization - Multi Client View",
             options,
-            Box::new(|_cc| Ok(Box::new(MultiClientApp::default()))),
+            Box::new(move |_cc| Ok(Box::new(MultiClientApp::new(client_manager)))),
         );
     }
 }
