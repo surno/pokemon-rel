@@ -63,7 +63,7 @@ impl Client {
 
         match self.reader.read_frame().await {
             Ok(frame) => {
-                debug!("Client {:?} received frame: {:?}", self.id, frame);
+                debug!("Client {:?} received frame", self.id);
                 self.router
                     .route(&frame)
                     .await
@@ -93,8 +93,6 @@ impl Client {
                                 break;
                             }
                             debug!("Client pipeline for {:?} handled message", self.id);
-                            // send 12 byte action (dummy)
-
                         }
                         Err(e) => {
                             error!("Client pipeline for {:?} handled message: {:?}", self.id, e);

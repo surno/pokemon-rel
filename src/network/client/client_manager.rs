@@ -1,6 +1,7 @@
 use crate::pipeline::types::SharedFrame;
 use std::collections::HashMap;
 use tokio::sync::broadcast::Receiver;
+use tracing::info;
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -20,8 +21,10 @@ impl ClientManager {
     }
 
     pub fn add_client(&mut self, client_id: Uuid, receiver: Receiver<SharedFrame>) {
+        info!("Adding client {}", client_id);
         self.client_receiver.insert(client_id, receiver);
         if self.selected_client.is_none() {
+            info!("No client selected, selecting {}", client_id);
             self.selected_client = Some(client_id);
         }
     }

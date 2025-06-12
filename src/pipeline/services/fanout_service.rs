@@ -9,6 +9,7 @@ use crate::pipeline::{
 };
 use tokio::sync::broadcast;
 use tower::Service;
+use tracing::debug;
 
 #[derive(Debug, Clone)]
 pub struct FanoutService {
@@ -42,6 +43,7 @@ impl Service<RawFrame> for FanoutService {
     fn call(&mut self, request: RawFrame) -> Self::Future {
         let shared_frame = SharedFrame::from(request.clone());
 
+        debug!("Sending frame to visualization");
         let _ = self.visualization_tx.send(shared_frame.clone());
 
         let ml_future = self.ml_service.call(request.clone());

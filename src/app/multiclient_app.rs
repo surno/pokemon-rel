@@ -1,7 +1,9 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use crate::app::views::{View, client_view::ClientView};
 use crate::network::client::client_manager::ClientManager;
+use tracing::{debug, info};
 
 pub struct MultiClientApp {
     client_manager: Arc<RwLock<ClientManager>>,
@@ -28,7 +30,7 @@ impl MultiClientApp {
         }
     }
 
-    pub async fn start_gui() {
+    pub fn start_gui() {
         let options = eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
                 .with_inner_size(egui::vec2(1280.0, 720.0))
@@ -48,10 +50,12 @@ impl eframe::App for MultiClientApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Upfate frames from all clients
         {
-            let mut client_manager = self.client_manager.write().unwrap();
+            let mut client_manager = self.client_manager.blocking_write();
             let mut new_frames = Vec::new();
             for (client_id, receiver) in client_manager.client_receiver.iter_mut() {
+                debug!("Trying to receive frame from client {}", client_id);
                 if let Ok(frame) = receiver.try_recv() {
+                    debug!("Received frame from client {}", client_id);
                     new_frames.push((*client_id, frame));
                 }
             }
@@ -69,11 +73,10 @@ impl eframe::App for MultiClientApp {
 
                 ui.checkbox(&mut self.show_overview, "Show Overview");
 
-                let mut selected_client = self.client_manager.read().unwrap().selected_client;
+                let mut selected_client = self.client_manager.blocking_read().selected_client;
                 let client_ids: Vec<_> = self
                     .client_manager
-                    .read()
-                    .unwrap()
+                    .blocking_read()
                     .client_receiver
                     .keys()
                     .cloned()
@@ -92,7 +95,7 @@ impl eframe::App for MultiClientApp {
                         }
                     });
 
-                self.client_manager.write().unwrap().selected_client = selected_client;
+                self.client_manager.blocking_write().selected_client = selected_client;
             });
 
         if self.show_overview {
@@ -102,15 +105,15 @@ impl eframe::App for MultiClientApp {
                     ui.heading("Overview");
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         for (client_id, frame) in
-                            self.client_manager.read().unwrap().client_frames.iter()
+                            self.client_manager.blocking_read().client_frames.iter()
                         {
                             ui.group(|ui| {
                                 let is_selected =
-                                    self.client_manager.read().unwrap().selected_client
+                                    self.client_manager.blocking_read().selected_client
                                         == Some(*client_id);
                                 let client_name = format!("Client {}", client_id);
                                 if ui.button(&client_name).clicked() {
-                                    self.client_manager.write().unwrap().selected_client =
+                                    self.client_manager.blocking_write().selected_client =
                                         Some(*client_id);
                                 }
 
@@ -142,11 +145,10 @@ impl eframe::App for MultiClientApp {
 
         if self.show_frame {
             egui::CentralPanel::default().show(ctx, |ui| {
-                if let Some(selected_client) = self.client_manager.read().unwrap().selected_client {
+                if let Some(selected_client) = self.client_manager.blocking_read().selected_client {
                     if let Some(frame) = self
                         .client_manager
-                        .read()
-                        .unwrap()
+                        .blocking_read()
                         .client_frames
                         .get(&selected_client)
                     {
