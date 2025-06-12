@@ -1,3 +1,5 @@
-pub mod visualization_app;
+pub mod multiclient_app;
+pub mod views;
 
-pub use visualization_app::VisualizationApp;
+pub use multiclient_app::MultiClientApp;
+pub use views::client_view::ClientView;

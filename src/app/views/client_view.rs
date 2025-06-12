@@ -1,42 +1,27 @@
-use std::sync::Arc;
-
+use crate::app::views::View;
 use crate::pipeline::types::{RawFrame, SharedFrame};
-use egui::{Image, ImageData, TextureHandle, TextureOptions};
+use egui::TextureOptions;
 use image::{ImageBuffer, Rgba};
-use tokio::sync::broadcast::Receiver;
+use tokio::sync::mpsc::Receiver;
+use uuid::Uuid;
 
-pub struct VisualizationApp {
-    frame_rx: Receiver<SharedFrame>,
+pub struct ClientView {
+    client_id: Uuid,
     current_frame: Option<SharedFrame>,
     show_frame: bool,
     show_prediction: bool,
     show_game_state: bool,
 }
 
-impl VisualizationApp {
-    pub fn new(frame_rx: Receiver<SharedFrame>, _: &eframe::CreationContext<'_>) -> Self {
+impl ClientView {
+    pub fn new(client_id: Uuid, frame: SharedFrame) -> Self {
         Self {
-            frame_rx,
-            current_frame: None,
+            client_id,
+            current_frame: Some(frame),
             show_frame: true,
             show_prediction: true,
             show_game_state: true,
         }
-    }
-
-    pub async fn start_gui(frame_rx: Receiver<SharedFrame>) {
-        let options = eframe::NativeOptions {
-            viewport: egui::ViewportBuilder::default()
-                .with_inner_size(egui::vec2(1280.0, 720.0))
-                .with_title("PokeBot Visualization - Live Debug View"),
-            ..Default::default()
-        };
-
-        let _ = eframe::run_native(
-            "PokeBot Visualization - Live Debug View",
-            options,
-            Box::new(|cc| Ok(Box::new(VisualizationApp::new(frame_rx, cc)))),
-        );
     }
 
     fn convert_pixels_to_image(&self, frame: &RawFrame) -> ImageBuffer<Rgba<u8>, Vec<u8>> {
@@ -53,7 +38,7 @@ impl VisualizationApp {
 
     fn draw_frame_info(&self, ui: &mut egui::Ui, frame: &SharedFrame) {
         ui.group(|ui| {
-            ui.label("Frame Info");
+            ui.label(format!("Frame Info for Client {}", self.client_id));
             ui.label(format!("Size: {}x{}", frame.raw.width, frame.raw.height));
             ui.label(format!("Pixels: {:?} bytes", frame.raw.pixels.len()));
             ui.label(format!("Timestamp: {:?}", frame.raw.timestamp));
@@ -62,7 +47,7 @@ impl VisualizationApp {
 
     fn draw_game_image(&self, ui: &mut egui::Ui, frame: &SharedFrame) {
         ui.group(|ui| {
-            ui.label("Game Image");
+            ui.label(format!("Game Image for Client {}", self.client_id));
 
             let image = self.convert_pixels_to_image(&frame.raw);
 
@@ -81,7 +66,7 @@ impl VisualizationApp {
 
     fn draw_prediction_info(&self, ui: &mut egui::Ui, frame: &SharedFrame) {
         ui.group(|ui| {
-            ui.label("Prediction Info");
+            ui.label(format!("Prediction Info for Client {}", self.client_id));
             match frame.ml_prediction.as_ref() {
                 Some(prediction) => {
                     ui.label(format!("Confidence: {:?}", prediction.confidence * 100.0));
@@ -122,7 +107,7 @@ impl VisualizationApp {
 
     fn draw_game_state_info(&self, ui: &mut egui::Ui, frame: &SharedFrame) {
         ui.group(|ui| {
-            ui.label("Game State Info");
+            ui.label(format!("Game State Info for Client {}", self.client_id));
 
             match frame.game_action.as_ref() {
                 Some(action) => {
@@ -136,39 +121,30 @@ impl VisualizationApp {
     }
 }
 
-impl eframe::App for VisualizationApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // first, try to get the latest frame
-        if let Ok(frame) = self.frame_rx.try_recv() {
-            self.current_frame = Some(frame);
-        }
-
+impl View for ClientView {
+    fn draw(&mut self, ui: &mut egui::Ui) {
         // Main UI
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("PokeBot Visualization - Live Debug View");
+        ui.heading("PokeBot Visualization - Live Debug View");
 
-            ui.horizontal(|ui| {
-                ui.checkbox(&mut self.show_frame, "Show Frame");
-                ui.checkbox(&mut self.show_prediction, "Show Prediction");
-                ui.checkbox(&mut self.show_game_state, "Show Game State");
-            });
-
-            ui.separator();
-
-            if let Some(ref frame) = self.current_frame {
-                self.draw_frame_info(ui, frame);
-                self.draw_game_image(ui, frame);
-
-                if self.show_prediction {
-                    self.draw_prediction_info(ui, frame);
-                }
-
-                if self.show_game_state {
-                    self.draw_game_state_info(ui, frame);
-                }
-            }
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut self.show_frame, "Show Frame");
+            ui.checkbox(&mut self.show_prediction, "Show Prediction");
+            ui.checkbox(&mut self.show_game_state, "Show Game State");
         });
 
-        ctx.request_repaint();
+        ui.separator();
+
+        if let Some(ref frame) = self.current_frame {
+            self.draw_frame_info(ui, frame);
+            self.draw_game_image(ui, frame);
+
+            if self.show_prediction {
+                self.draw_prediction_info(ui, frame);
+            }
+
+            if self.show_game_state {
+                self.draw_game_state_info(ui, frame);
+            }
+        }
     }
 }

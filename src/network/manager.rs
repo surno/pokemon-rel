@@ -85,10 +85,11 @@ impl NetworkManager {
 
     pub async fn spawn_client_pipeline(&self, stream: TcpStream) {
         let addr = stream.peer_addr().unwrap();
-        let (client, client_handle) = Client::new(
-            stream,
-            Box::new(PokemonFrameHandler::new(FanoutService::new(10).0)),
-        );
+
+        let (fanout_service, viz_receiver) = FanoutService::new(10);
+
+        let (client, client_handle) =
+            Client::new(stream, Box::new(PokemonFrameHandler::new(fanout_service)));
         let client_id = client.id();
         info!(
             "New client attempting to connect: {:?} from {:?}",

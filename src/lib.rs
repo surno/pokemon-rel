@@ -3,7 +3,7 @@ pub mod error;
 pub mod network;
 pub mod pipeline;
 
-pub use app::VisualizationApp;
+pub use app::multiclient_app::MultiClientApp;
 
 pub use error::{BotError, ClientError, NetworkError};
 
