@@ -1,6 +1,9 @@
-use crate::{ClientError, NetworkError, network::frame_handler::FrameHandler};
+use crate::{
+    ClientError, NetworkError,
+    network::frame::frame_reader::FrameReader,
+    network::frame_handler::{DelegatingRouter, PokemonFrameHandler},
+};
 use tokio::{
-    io::{AsyncWriteExt, Interest},
     net::TcpStream,
     sync::broadcast::{self, Sender},
 };
@@ -10,9 +13,9 @@ use uuid::Uuid;
 #[derive(Debug)]
 pub struct Client {
     id: Uuid,
-    stream: TcpStream,
+    reader: FrameReader,
     shutdown_tx: Sender<()>,
-    handler: Box<dyn FrameHandler>,
+    router: DelegatingRouter<PokemonFrameHandler>,
 }
 
 #[derive(Debug)]
@@ -38,15 +41,15 @@ impl ClientHandle {
 }
 
 impl Client {
-    pub fn new(stream: TcpStream, handler: Box<dyn FrameHandler>) -> (Self, ClientHandle) {
+    pub fn new(stream: TcpStream, pokemon_handler: PokemonFrameHandler) -> (Self, ClientHandle) {
         let (shutdown_tx, _) = broadcast::channel(1);
         let id = Uuid::new_v4();
         (
             Self {
                 id,
-                stream,
+                reader: FrameReader::new(stream),
                 shutdown_tx: shutdown_tx.clone(),
-                handler,
+                router: DelegatingRouter::new(pokemon_handler),
             },
             ClientHandle { id, shutdown_tx },
         )
@@ -58,24 +61,16 @@ impl Client {
             return Ok(false);
         }
 
-        let mut buf = [0; 1024];
-        self.stream
-            .readable()
-            .await
-            .map_err(ClientError::ReadError)?;
-
-        match self.stream.try_read(&mut buf) {
-            Ok(_) => {
-                debug!("Client {:?} received message: {:?}", self.id, buf);
+        match self.reader.read_frame().await {
+            Ok(frame) => {
+                debug!("Client {:?} received frame: {:?}", self.id, frame);
+                self.router
+                    .route(&frame)
+                    .await
+                    .map_err(|e| ClientError::RouteError(e))?;
                 Ok(true)
             }
-            Err(e) => {
-                if e.kind() == std::io::ErrorKind::WouldBlock {
-                    Ok(false)
-                } else {
-                    Err(ClientError::ReadError(e))
-                }
-            }
+            Err(e) => Err(ClientError::ReadError(e)),
         }
     }
 
@@ -116,15 +111,12 @@ impl Client {
 
     pub async fn is_connected(&self) -> bool {
         debug!("Checking if client {:?} is connected", self.id);
-        self.stream
-            .ready(Interest::READABLE | Interest::WRITABLE)
-            .await
-            .is_ok()
+        self.reader.is_connected().await
     }
 
     pub async fn stop(&mut self) -> Result<(), NetworkError> {
         info!("Shutting down client {:?}", self.id);
-        self.stream
+        self.reader
             .shutdown()
             .await
             .map_err(|e| NetworkError::ShutdownError(e.to_string()))?;
@@ -134,8 +126,7 @@ impl Client {
 
 #[cfg(test)]
 mod tests {
-    use crate::network::frame_handler::PokemonFrameHandler;
-    use crate::pipeline::services::FanoutService;
+    use crate::pipeline::FanoutService;
 
     use super::*;
     use std::{net::SocketAddr, time::Duration};
@@ -181,10 +172,8 @@ mod tests {
         let client = listener.accept().await;
         assert!(client.is_ok());
         let (stream, _) = client.unwrap();
-        let (mut client, handle) = Client::new(
-            stream,
-            Box::new(PokemonFrameHandler::new(FanoutService::new(10).0)),
-        );
+        let (mut client, handle) =
+            Client::new(stream, PokemonFrameHandler::new(FanoutService::new(10).0));
         let pipeline_task = tokio::spawn(async move {
             let result = client.run_pipeline().await;
             assert!(result.is_ok());

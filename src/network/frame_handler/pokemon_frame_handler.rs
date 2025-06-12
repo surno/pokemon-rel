@@ -33,7 +33,7 @@ impl FrameHandler for PokemonFrameHandler {
     fn handle_image(&mut self, width: u32, height: u32, pixels: Vec<u8>) -> Result<(), FrameError> {
         debug!("Received image: width={}, height={}", width, height);
         let raw_frame = RawFrame::new(width, height, pixels);
-        self.fanout_service.call(raw_frame);
+        let _result = self.fanout_service.call(raw_frame);
         Ok(())
     }
 

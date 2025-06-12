@@ -70,16 +70,87 @@ impl MultiClientApp {
 impl eframe::App for MultiClientApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Main UI
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("PokeBot Visualization - Multi Client View");
+        egui::TopBottomPanel::top("Client Selector")
+            .resizable(true)
+            .show(ctx, |ui| {
+                ui.heading("PokeBot Visualization - Multi Client View");
+                ui.separator();
 
-            if let Some(client_id) = self.selected_client {
-                let mut client_view = ClientView::new(
-                    client_id,
-                    self.client_frames.get(&client_id).unwrap().clone(),
-                );
-                client_view.draw(ui);
-            }
-        });
+                ui.checkbox(&mut self.show_overview, "Show Overview");
+
+                egui::ComboBox::from_label("Active Client.")
+                    .selected_text(
+                        self.selected_client
+                            .map(|id| id.to_string())
+                            .unwrap_or("None".to_string()),
+                    )
+                    .show_ui(ui, |ui| {
+                        for client_id in self.client_receiver.keys() {
+                            let client_name = format!("Client {}", client_id);
+                            ui.selectable_value(
+                                &mut self.selected_client,
+                                Some(*client_id),
+                                client_name,
+                            );
+                        }
+                    });
+            });
+
+        if self.show_overview {
+            egui::SidePanel::left("overview")
+                .resizable(true)
+                .show(ctx, |ui| {
+                    ui.heading("Overview");
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        for (client_id, frame) in self.client_frames.iter() {
+                            ui.group(|ui| {
+                                let is_selected = self.selected_client == Some(*client_id);
+                                let client_name = format!("Client {}", client_id);
+                                if ui.button(&client_name).clicked() {
+                                    self.selected_client = Some(*client_id);
+                                }
+
+                                // Mini preview
+                                ui.label(format!(
+                                    "Client {}x{}",
+                                    frame.raw.width, frame.raw.height
+                                ));
+                                if let Some(enriched) = frame.enriched.as_ref() {
+                                    let player_position = enriched.game_state.player_position;
+                                    ui.label(format!(
+                                        "Player Position: {}, {}",
+                                        player_position.0, player_position.1
+                                    ));
+                                }
+
+                                if let Some(prediction) = frame.ml_prediction.as_ref() {
+                                    ui.label(format!("Prediction: {:?}", prediction.confidence));
+                                }
+
+                                if is_selected {
+                                    ui.colored_label(egui::Color32::GREEN, "Selected");
+                                }
+                            });
+                        }
+                    });
+                });
+        }
+
+        if self.show_frame {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                if let Some(selected_client) = self.selected_client {
+                    if let Some(frame) = self.client_frames.get(&selected_client) {
+                        ui.heading(format!("Detailed View - Client {}", selected_client));
+                        let mut client_view = ClientView::new(selected_client, frame.clone());
+                        client_view.draw(ui);
+                    } else {
+                        ui.heading("No frame available... waiting for frame from client");
+                    }
+                } else {
+                    ui.heading("No client selected");
+                }
+            });
+        }
+        ctx.request_repaint();
     }
 }

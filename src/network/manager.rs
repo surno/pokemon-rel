@@ -88,9 +88,11 @@ impl NetworkManager {
 
         let (fanout_service, viz_receiver) = FanoutService::new(10);
 
-        let (client, client_handle) =
-            Client::new(stream, Box::new(PokemonFrameHandler::new(fanout_service)));
+        let pokemon_handler = PokemonFrameHandler::new(fanout_service);
+
+        let (client, client_handle) = Client::new(stream, pokemon_handler);
         let client_id = client.id();
+
         info!(
             "New client attempting to connect: {:?} from {:?}",
             client_id, addr
@@ -99,6 +101,7 @@ impl NetworkManager {
         self.client_handles.write().await.push(client_handle);
 
         let clients_for_cleanup = self.client_handles.clone();
+
         tokio::spawn(async move {
             info!("Starting client pipeline for {:?}", client_id);
             let mut client = client;

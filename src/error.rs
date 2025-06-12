@@ -31,13 +31,15 @@ pub enum NetworkError {
 #[derive(Error, Debug)]
 pub enum ClientError {
     #[error("Failed to read message: {0}")]
-    ReadError(std::io::Error),
+    ReadError(FrameError),
     #[error("Failed to write message: {0}")]
     WriteError(std::io::Error),
     #[error("Failed to send shutdown to client handle: {0}")]
     ShutdownError(Uuid),
     #[error("Failed to stop client: {0}")]
     StopError(NetworkError),
+    #[error("Failed to route frame: {0}")]
+    RouteError(FrameError),
 }
 
 #[derive(Error, Debug)]
@@ -54,6 +56,8 @@ pub enum PipelineError {
 
 #[derive(Error, Debug)]
 pub enum FrameError {
+    #[error("Failed to read frame: {0}")]
+    ReadError(std::io::Error),
     #[error("Invalid frame length, expected at least 5 bytes, got {0}")]
     InvalidFrameLength(usize),
     #[error("Invalid frame tag, got {0}")]
@@ -72,6 +76,8 @@ pub enum FrameError {
     InvalidHeight(TryFromSliceError),
     #[error("Invalid pixels length, got {0}x{1} = {2}, expected {3}")]
     InvalidPixelsLength(u32, u32, usize, usize),
+    #[error("Failed to convert slice to frame: {0}")]
+    TryFromSliceError(TryFromSliceError),
 }
 
 #[derive(Error, Debug)]

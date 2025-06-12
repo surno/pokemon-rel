@@ -9,25 +9,31 @@ pub trait FrameHandler: Send + Sync + 'static + Debug {
     fn handle_shutdown(&self) -> Result<(), FrameError>;
 }
 
+#[derive(Debug)]
 pub struct DelegatingRouter<H: FrameHandler> {
     handler: H,
 }
 
 impl<H: FrameHandler> DelegatingRouter<H> {
-    pub async fn route(&mut self, data: &[u8]) -> Result<(), FrameError> {
-        let frame = Frame::try_from(data)?;
+    pub fn new(handler: H) -> Self {
+        Self { handler }
+    }
+
+    pub async fn route(&mut self, frame: &Frame) -> Result<(), FrameError> {
         match frame {
             Frame::Ping => self.handler.handle_ping(),
             Frame::Handshake {
                 version,
                 name,
                 program,
-            } => self.handler.handle_handshake(version, name, program),
+            } => self
+                .handler
+                .handle_handshake(*version, name.clone(), *program),
             Frame::Image {
                 width,
                 height,
                 pixels,
-            } => self.handler.handle_image(width, height, pixels),
+            } => self.handler.handle_image(*width, *height, pixels.clone()),
             Frame::Shutdown => self.handler.handle_shutdown(),
         }
     }
