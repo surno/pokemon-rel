@@ -69,6 +69,13 @@ impl MultiClientApp {
 
 impl eframe::App for MultiClientApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Upfate frames from all clients
+        for (client_id, receiver) in self.client_receiver.iter_mut() {
+            if let Ok(frame) = receiver.try_recv() {
+                self.client_frames.insert(*client_id, frame);
+            }
+        }
+
         // Main UI
         egui::TopBottomPanel::top("Client Selector")
             .resizable(true)
