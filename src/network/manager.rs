@@ -1,6 +1,9 @@
-use crate::network::{ClientHandle, frame_handler::PokemonFrameHandler};
+use crate::network::frame_handler::PokemonFrameHandler;
 use crate::pipeline::services::FanoutService;
-use crate::{Client, NetworkError};
+use crate::{
+    NetworkError, network::client::Client, network::client::ClientHandle,
+    network::client::client_manager::ClientManager,
+};
 use std::sync::Arc;
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -12,6 +15,7 @@ use tracing::{error, info};
 #[derive(Debug)]
 pub struct NetworkManager {
     client_handles: Arc<RwLock<Vec<ClientHandle>>>,
+    client_manager: Arc<RwLock<ClientManager>>,
     port: u16,
     shutdown_tx: broadcast::Sender<()>,
     listener: Option<TcpListener>,
@@ -37,12 +41,13 @@ impl NetworkHandle {
 }
 
 impl NetworkManager {
-    pub fn new(port: u16) -> (Self, NetworkHandle) {
+    pub fn new(port: u16, client_manager: Arc<RwLock<ClientManager>>) -> (Self, NetworkHandle) {
         let (shutdown_tx, _) = broadcast::channel(1);
         let client_handles = Arc::new(RwLock::new(Vec::new()));
         (
             Self {
                 client_handles: client_handles.clone(),
+                client_manager,
                 port,
                 shutdown_tx: shutdown_tx.clone(),
                 listener: None,
@@ -101,9 +106,14 @@ impl NetworkManager {
         self.client_handles.write().await.push(client_handle);
 
         let clients_for_cleanup = self.client_handles.clone();
+        let client_manager = self.client_manager.clone();
 
         tokio::spawn(async move {
             info!("Starting client pipeline for {:?}", client_id);
+            {
+                let mut client_manager = client_manager.write().await;
+                client_manager.add_client(client_id, viz_receiver);
+            }
             let mut client = client;
             let result = client.run_pipeline().await;
             match result {
@@ -118,6 +128,12 @@ impl NetworkManager {
                 .write()
                 .await
                 .retain(|c| c.id != client_id);
+
+            {
+                let mut client_manager = client_manager.write().await;
+                client_manager.remove_client(client_id);
+            }
+
             info!("Client disconnected: {:?} from {:?}", client_id, addr);
         });
         info!("Client connected: {:?} from {:?}", client_id, addr);
@@ -152,7 +168,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_manager_new() {
-        let (mut manager, handle) = NetworkManager::new(DEFAULT_PORT);
+        let client_manager = Arc::new(RwLock::new(ClientManager::new()));
+        let (mut manager, handle) = NetworkManager::new(DEFAULT_PORT, client_manager);
         // share the manager with the test
         tokio::spawn(async move {
             let result = manager.start().await;
@@ -164,7 +181,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_manager_start_and_shutdown() {
-        let (mut manager, handle) = NetworkManager::new(DEFAULT_PORT);
+        let client_manager = Arc::new(RwLock::new(ClientManager::new()));
+        let (mut manager, handle) = NetworkManager::new(DEFAULT_PORT, client_manager);
         tokio::spawn(async move {
             let result = manager.start().await;
             assert!(
@@ -179,7 +197,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_manager_get_client_count() {
-        let (mut manager, handle) = NetworkManager::new(DEFAULT_PORT);
+        let client_manager = Arc::new(RwLock::new(ClientManager::new()));
+        let (mut manager, handle) = NetworkManager::new(DEFAULT_PORT, client_manager);
         tokio::spawn(async move {
             let result = manager.start().await;
             assert!(result.is_ok());
@@ -190,7 +209,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_manager_start_and_shutdown_twice() {
-        let (mut manager, _) = NetworkManager::new(DEFAULT_PORT);
+        let client_manager = Arc::new(RwLock::new(ClientManager::new()));
+        let (mut manager, _) = NetworkManager::new(DEFAULT_PORT, client_manager);
         tokio::spawn(async move {
             let _ = manager.start();
             let result = manager.start().await;
