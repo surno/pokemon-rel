@@ -6,6 +6,12 @@ pub trait FrameHandler: Send + Sync + 'static + Debug {
     fn handle_ping(&self) -> Result<(), FrameError>;
     fn handle_handshake(&self, version: u32, name: String, program: u16) -> Result<(), FrameError>;
     fn handle_image(&mut self, width: u32, height: u32, pixels: Vec<u8>) -> Result<(), FrameError>;
+    fn handle_image_gd2(
+        &mut self,
+        width: u32,
+        height: u32,
+        gd2_data: Vec<u8>,
+    ) -> Result<(), FrameError>;
     fn handle_shutdown(&self) -> Result<(), FrameError>;
 }
 
@@ -34,6 +40,13 @@ impl<H: FrameHandler> DelegatingRouter<H> {
                 height,
                 pixels,
             } => self.handler.handle_image(*width, *height, pixels.clone()),
+            Frame::ImageGD2 {
+                width,
+                height,
+                gd2_data,
+            } => self
+                .handler
+                .handle_image_gd2(*width, *height, gd2_data.clone()),
             Frame::Shutdown => self.handler.handle_shutdown(),
         }
     }

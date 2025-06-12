@@ -54,6 +54,7 @@ impl FrameReader {
                             .map_err(FrameError::ReadError)?;
 
                         if bytes_read == 0 {
+                            debug!("Connection closed while reading frame length");
                             return Err(FrameError::InvalidFrameLength(0)); // Connection is closed
                         }
 
@@ -96,15 +97,21 @@ impl FrameReader {
 
                     self.state = ReadState::WaitingForLength;
 
-                    // comment
-                    debug!("{}", format!("Got Frame {}", frame_data.len()));
-                    // send random 12 bytes of data for action.
-                    let action = [0u8; 12];
+                    // Successfully read frame data
+                    debug!("Got Frame {} bytes", frame_data.len());
+
+                    // Parse frame first
+                    let frame_result = Frame::try_from(frame_data.as_slice());
+
+                    // Send action response (expected by Lua client)
+                    let action = [0u8; 12]; // Default: no buttons pressed
                     let action_result = self.reader.write_all(&action).await;
-                    if action_result.is_err() {
-                        debug!("Error sending action: {:?}", action_result.err());
+                    if let Err(e) = action_result {
+                        debug!("Error sending action response: {:?}", e);
+                        return Err(FrameError::ReadError(e));
                     }
-                    return Frame::try_from(frame_data.as_slice());
+
+                    return frame_result;
                 }
             }
         }

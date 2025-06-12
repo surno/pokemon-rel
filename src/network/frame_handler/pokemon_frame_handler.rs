@@ -37,6 +37,19 @@ impl FrameHandler for PokemonFrameHandler {
         Ok(())
     }
 
+    fn handle_image_gd2(
+        &mut self,
+        width: u32,
+        height: u32,
+        gd2_data: Vec<u8>,
+    ) -> Result<(), FrameError> {
+        debug!("Received image GD2: width={}, height={}", width, height);
+        // convert gd2 data to raw frame
+        let raw_frame = RawFrame::new(width, height, gd2_data);
+        let _result = self.fanout_service.call(raw_frame);
+        Ok(())
+    }
+
     fn handle_shutdown(&self) -> Result<(), FrameError> {
         debug!("Received shutdown");
         Ok(())
