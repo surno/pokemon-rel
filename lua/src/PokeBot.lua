@@ -34,6 +34,12 @@ local function le16(n)
     )
 end
 
+-- helper: convert 4‑byte little‑endian string → integer
+local function le32_to_int(bytes)
+    local b1, b2, b3, b4 = bytes:byte(1, 4)
+    return b1 + b2 * 256 + b3 * 65536 + b4 * 16777216
+end
+
 -- Frame creation helper - matches Rust server's frame_reader expectations
 local function create_frame(tag, data)
     local frame_data = string.char(tag) .. (data or "")
@@ -142,115 +148,88 @@ local function send_frame_and_get_action()
         end
     end
     
-    -- Capture both screens using GD2 format (safe approach)
-    local top_raw = gui.gdscreenshot(1)  -- Top screen
-    local bot_raw = gui.gdscreenshot(0)  -- Bottom screen
-    
-    if not top_raw or not bot_raw or #top_raw == 0 or #bot_raw == 0 then
+    local raw_buf = gui.gdscreenshot(0)      -- both screens, GD2 header + pixels
+    local expected_len = 256 * 384 * 4       -- 393_216 bytes for one 256×384 RGBA frame
+
+    -- Skip the 7‑byte GD2 header and take exactly the expected pixel payload.
+    -- Any padding bytes after the payload are ignored.
+    local screens_raw = raw_buf:sub(8, 8 + expected_len - 1)
+
+    if #screens_raw ~= expected_len then
+        print(string.format("[Lua] Error: sliced %d bytes, expected %d", #screens_raw, expected_len))
+        return
+    end
+    if not screens_raw or #screens_raw == 0 then
         print("[Lua] ERROR: failed to capture screens")
         return
     end
+
+    if #screens_raw % 4 ~= 0 then
+        print(string.format("[Lua] Error: Raw screen data size is not a multiple of 4 (%d bytes)", #screens_raw))
+        return
+    end
     
-    local top_pixels, bot_pixels, combined_pixels
+    local screen_pixels
     
     if first_frame then
-        print(string.format("[Lua] Raw data - Top: %d bytes, Bot: %d bytes", #top_raw, #bot_raw))
+        print(string.format("[Lua] Raw screen data: %d bytes", #screens_raw))
+        -- Save the image data to files for debugging
+        local screen_file = io.open("screens.ppm", "wb")
+        if screen_file then
+            local width, height = 256, 384
+            local rgb = {}
+            for i = 1, #screens_raw, 4 do
+                -- GD2 pixel order is B G R A; convert to R G B
+                local b = screens_raw:byte(i)
+                local g = screens_raw:byte(i + 1)
+                local r = screens_raw:byte(i + 2)
+                rgb[#rgb + 1] = string.char(r, g, b)
+            end
+            local rgb_blob = table.concat(rgb)
+            screen_file:write(string.format("P6 %d %d 255\n", width, height))
+            screen_file:write(rgb_blob)
+            screen_file:close()
+        else
+            print("[Lua] ❌ Failed to write bottom screen data to file")
+        end
+        print("[Lua] ✅ Screens captured successfully, processing data...")
+        print(string.format("[Lua] Screen size: %d bytes", #screens_raw))
+        print("[Lua] Processing frames...")
+        -- Calculate expected sizes to determine format
+        local screen_pixels = 256 * 384 
+        local bytes_per_pixel = #screens_raw / screen_pixels
+        print(string.format("[Lua] %.1f bytes/pixel", bytes_per_pixel))
+
+        print("[Lua] Converting raw pixel data to RGB format...")
     end
     
-    -- Check if it's GD2 format or raw pixels
-    if #top_raw >= 4 and top_raw:sub(1,3) == "GD2" then
-        -- GD2 format - remove headers
-        if first_frame then
-            print("[Lua] ✅ GD2 format detected")
+    -- Convert to RGB based on detected format
+    local function convert_to_rgb_from_bgra(data)
+        local pixels = {}
+        for i = 1, #data, 4 do
+            -- GD2 pixel order is B G R A; convert to R G B
+            local b = data:byte(i)
+            local g = data:byte(i + 1)
+            local r = data:byte(i + 2)
+            pixels[#pixels + 1] = string.char(r, g, b)  -- Store as R G B
         end
-        top_pixels = top_raw:sub(8)  -- Skip "GD2" + 4-byte length
-        bot_pixels = bot_raw:sub(8)  -- Skip "GD2" + 4-byte length
-        combined_pixels = top_pixels .. bot_pixels
-    else
-        -- Raw pixel format - use data directly
-        if first_frame then
-            print("[Lua] ✅ Raw pixel format detected")
-            -- Calculate expected sizes to determine format
-            local top_screen_pixels = 256 * 192  -- Top screen
-            local bot_screen_pixels = 256 * 192  -- Bottom screen
-            local top_bytes_per_pixel = #top_raw / top_screen_pixels
-            local bot_bytes_per_pixel = #bot_raw / bot_screen_pixels
-            print(string.format("[Lua] Top: %.1f bytes/pixel, Bot: %.1f bytes/pixel", top_bytes_per_pixel, bot_bytes_per_pixel))
-            
-            if top_bytes_per_pixel >= 3.8 and top_bytes_per_pixel <= 4.2 then
-                print("[Lua] Detected RGBA format (4 bytes per pixel)")
-            elseif top_bytes_per_pixel >= 2.8 and top_bytes_per_pixel <= 3.2 then
-                print("[Lua] Detected RGB format (3 bytes per pixel)")
-            else
-                print(string.format("[Lua] Unknown format: %.1f bytes per pixel", top_bytes_per_pixel))
-            end
-        end
-        
-        -- Convert to RGB based on detected format
-        local function convert_to_rgb(data, expected_pixels, bytes_per_pixel)
-            if bytes_per_pixel == 4 then
-                -- RGBA to RGB conversion - ensure exact pixel count
-                local rgb = {}
-                local pixels_processed = 0
-                for i = 1, #data, 4 do
-                    if pixels_processed >= expected_pixels then
-                        break  -- Stop at exact pixel count
-                    end
-                    if i + 2 <= #data then
-                        table.insert(rgb, data:sub(i, i+2))  -- Take RGB, skip A
-                        pixels_processed = pixels_processed + 1
-                    end
-                end
-                return table.concat(rgb)
-            elseif bytes_per_pixel == 3 then
-                -- Already RGB - trim to exact size
-                local expected_size = expected_pixels * 3
-                return data:sub(1, expected_size)
-            else
-                -- Unknown format - extract with precise pixel count
-                local rgb = {}
-                local step = math.floor(bytes_per_pixel)
-                local pixels_processed = 0
-                for i = 1, #data, step do
-                    if pixels_processed >= expected_pixels then
-                        break
-                    end
-                    if i + 2 <= #data then
-                        table.insert(rgb, data:sub(i, i+2))  -- Take first 3 bytes
-                        pixels_processed = pixels_processed + 1
-                    end
-                end
-                return table.concat(rgb)
-            end
-        end
-        
-        -- Convert both screens to RGB with precise pixel counts
-        local top_screen_pixels = 256 * 192  -- 49,152 pixels
-        local bot_screen_pixels = 256 * 192  -- 49,152 pixels
-        local top_bytes_per_pixel = #top_raw / top_screen_pixels
-        local bot_bytes_per_pixel = #bot_raw / bot_screen_pixels
-        
-        top_pixels = convert_to_rgb(top_raw, top_screen_pixels, top_bytes_per_pixel)
-        bot_pixels = convert_to_rgb(bot_raw, bot_screen_pixels, bot_bytes_per_pixel)
-        
-        if first_frame then
-            print(string.format("[Lua] After conversion - Top: %d bytes, Bot: %d bytes", #top_pixels, #bot_pixels))
-            print(string.format("[Lua] Expected RGB - Top: %d bytes, Bot: %d bytes", top_screen_pixels * 3, bot_screen_pixels * 3))
-        end
-        
-        combined_pixels = top_pixels .. bot_pixels
+        return table.concat(pixels)
     end
-    
-    if first_frame then
-        print(string.format("[Lua] Final combined data: %d bytes", #combined_pixels))
-    end
+
+    pixels = convert_to_rgb_from_bgra(screens_raw)
     
     -- Create appropriate frame based on detected format
     local width, height = 256, 384
-    local image_data = le32(width) .. le32(height) .. combined_pixels
+    local image_data = le32(width) .. le32(height) .. pixels
+
+    if first_frame then
+        print(string.format("[Lua] After conversion - Top: %d bytes", #pixels))
+        print(string.format("[Lua] Expected RGB: %d bytes", width * height * 3))
+    end
+    
     
     -- Determine frame type based on data format
-    local is_gd2 = (#top_raw >= 4 and top_raw:sub(1,3) == "GD2")
+    local is_gd2 = (#screens_raw >= 4 and screens_raw:sub(1,3) == "GD2")
     local frame_tag = is_gd2 and 4 or 2  -- tag 4 = GD2, tag 2 = RGB
     local blob = create_frame(frame_tag, image_data)
     
@@ -259,15 +238,15 @@ local function send_frame_and_get_action()
         local format_name = is_gd2 and "GD2" or "RGB"
         print(string.format("[Lua] 📸 Sending frame with tag %d (%s format)", frame_tag, format_name))
         print(string.format("[Lua] Frame %d: Total frame size=%d bytes", frame_counter, total_size))
-        print(string.format("[Lua] Frame structure: length(4) + tag(1) + width(4) + height(4) + %s_data(%d)", format_name, #combined_pixels))
+        print(string.format("[Lua] Frame structure: length(4) + tag(1) + width(4) + height(4) + %s_data(%d)", format_name, #pixels))
         
         -- Validate final size for RGB data
         if not is_gd2 then
             local expected_rgb_size = 256 * 384 * 3  -- 294,912 bytes for RGB
-            if #combined_pixels > expected_rgb_size * 1.1 then
-                print(string.format("[Lua] ⚠️  Warning: RGB data larger than expected (%d vs %d)", #combined_pixels, expected_rgb_size))
+            if #pixels > expected_rgb_size then
+                print(string.format("[Lua] ⚠️  Warning: RGB data larger than expected (%d vs %d)", #pixels, expected_rgb_size))
             else
-                print(string.format("[Lua] ✅ RGB data size looks correct (%d bytes)", #combined_pixels))
+                print(string.format("[Lua] ✅ RGB data size looks correct (%d bytes)", #pixels))
             end
         end
         

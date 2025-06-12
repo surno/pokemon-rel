@@ -8,9 +8,7 @@ use tracing::Level;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // enable debug logging
-    tracing_subscriber::fmt()
-        .with_max_level(Level::DEBUG)
-        .init();
+    tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 
     // Shared client manager using tokio::sync::RwLock
     let client_manager = Arc::new(tokio::sync::RwLock::new(ClientManager::new()));

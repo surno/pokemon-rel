@@ -96,6 +96,7 @@ impl Client {
                         }
                         Err(e) => {
                             error!("Client pipeline for {:?} handled message: {:?}", self.id, e);
+                            return Err(e);
                         }
                     }
                 }

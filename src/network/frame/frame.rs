@@ -1,3 +1,5 @@
+use tracing::error;
+
 use crate::error::FrameError;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -61,6 +63,13 @@ impl TryFrom<&[u8]> for Frame {
                 // verify the pixels match the width and height for RGB format (3 bytes per pixel)
                 let expected_rgb_size = (width * height * 3) as usize;
                 if pixels.len() != expected_rgb_size {
+                    error!(
+                        "Invalid pixels length, got {}x{}*3 != {}, expected {}",
+                        width,
+                        height,
+                        pixels.len(),
+                        expected_rgb_size
+                    );
                     return Err(FrameError::InvalidPixelsLength(
                         width,
                         height,
