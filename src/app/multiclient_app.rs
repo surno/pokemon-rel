@@ -1,3 +1,4 @@
+use std::time::SystemTime;
 use std::{
     collections::{HashMap, VecDeque},
     sync::Arc,
@@ -10,38 +11,33 @@ use crate::network::client::client_manager::ClientManager;
 use tracing::{debug, info};
 
 struct FpsTracker {
-    frame_timestamps: VecDeque<u64>,
-    max_frames: usize,
+    last_timestamp: SystemTime,
+    frame_count: usize,
     last_fps: f32,
 }
 
 impl FpsTracker {
     pub fn new() -> Self {
         Self {
-            frame_timestamps: VecDeque::new(),
-            max_frames: 1000,
+            last_timestamp: SystemTime::now(),
+            frame_count: 0,
             last_fps: 0.0,
         }
     }
 
-    pub fn add_frame(&mut self, timestamp: u64) {
-        self.frame_timestamps.push_back(timestamp);
-        while self.frame_timestamps.len() > self.max_frames {
-            self.frame_timestamps.pop_front();
-        }
-
-        if self.frame_timestamps.len() >= 2 {
-            let oldest_timestamp = self.frame_timestamps.front().unwrap();
-            let newest_timestamp = self.frame_timestamps.back().unwrap();
-            let elapsed_time = newest_timestamp - oldest_timestamp;
-
-            if elapsed_time > 0 {
-                self.last_fps = (self.frame_timestamps.len() - 1) as f32 / elapsed_time as f32;
-            }
-        }
+    pub fn add_frame(&mut self) {
+        self.frame_count += 1;
     }
 
-    pub fn get_fps(&self) -> f32 {
+    pub fn get_fps(&mut self) -> f32 {
+        let now = SystemTime::now();
+        let elapsed_time = now.duration_since(self.last_timestamp).unwrap();
+        // every 10 seconds, reset the frame count
+        if elapsed_time.as_secs() > 1 {
+            self.last_fps = self.frame_count as f32 / elapsed_time.as_secs() as f32;
+            self.frame_count = 0;
+            self.last_timestamp = now;
+        }
         self.last_fps
     }
 }
@@ -103,7 +99,7 @@ impl eframe::App for MultiClientApp {
                 debug!("Trying to receive frame from client {}", client_id);
                 if let Ok(frame) = receiver.try_recv() {
                     debug!("Received frame from client {}", client_id);
-                    fps_tracker.add_frame(frame.raw.timestamp);
+                    fps_tracker.add_frame();
                     new_frames.push((*client_id, frame));
                 }
             }
@@ -201,7 +197,8 @@ impl eframe::App for MultiClientApp {
                         .get(&selected_client)
                     {
                         ui.heading(format!("Detailed View - Client {}", selected_client));
-                        let fps = self.fps_tracker.get(&selected_client).unwrap().get_fps();
+                        let mut fps_tracker = self.fps_tracker.get_mut(&selected_client).unwrap();
+                        let fps = fps_tracker.get_fps();
                         let mut client_view = ClientView::new(selected_client, frame.clone(), fps);
                         client_view.draw(ui);
                     } else {
