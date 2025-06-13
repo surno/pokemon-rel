@@ -141,6 +141,62 @@ local function is_connection_alive()
     return true
 end
 
+-- Process received input from the server
+local function process_input(input)
+    if not input or #input < 12 then
+        print("[Lua] ❌ Invalid input received, skipping frame")
+        return nil
+    end
+    
+    -- Extract action bytes from input
+    local action = input:sub(1, 12)
+    
+    print(string.format("[Lua] Received action: %s", table.concat(action_bytes, " ")))
+
+    -- Validate action length
+    if #action ~= 12 then
+        print(string.format("[Lua] ❌ Invalid action length: %d bytes", #action))
+        return nil
+    end
+
+    -- send the action to joypad    
+
+    joypad.set{
+        A=action:byte(1)~=0,      -- Button A
+        B=action:byte(2)~=0,      -- Button B  
+        Select=action:byte(3)~=0, -- Select
+        Start=action:byte(4)~=0,  -- Start
+        Up=action:byte(5)~=0,     -- D-pad Up
+        Down=action:byte(6)~=0,   -- D-pad Down
+        Left=action:byte(7)~=0,   -- D-pad Left
+        Right=action:byte(8)~=0,  -- D-pad Right
+        X=action:byte(9)~=0,      -- Button X
+        Y=action:byte(10)~=0,     -- Button Y
+        L=action:byte(11)~=0,     -- Left shoulder
+        R=action:byte(12)~=0,     -- Right shoulder
+    }
+
+end
+
+local function receive_input()
+    sock:settimeout(0)  -- Non-blocking mode
+    while true do
+        local input, err = sock:receive(12)  -- Expecting 12-byte action response
+        if input then
+            return process_input(input)
+        elseif err == "timeout" then
+            return nil  -- No input available, continue processing
+        elseif err == "closed" or err == "broken pipe" then
+            print("[Lua] Connection lost during receive, attempting reconnection...")
+            connect_to_server()
+            return nil  -- Reconnection handled, no input to process
+        else
+            print(string.format("[Lua] Receive error: %s", err or "unknown"))
+            return nil  -- Other errors, skip this frame
+        end
+    end 
+end 
+
 -- Robust frame sending with error recovery
 local function send_frame_and_get_action()
     -- Frame rate limiting
@@ -319,84 +375,11 @@ local function send_frame_and_get_action()
     -- Wait for 12-byte action response with retry logic
     local receive_attempts = 0
     local max_receive_attempts = 3
-    local action = nil
-
-    
-    -- while receive_attempts < max_receive_attempts and not action do
-    --     receive_attempts = receive_attempts + 1
-    --     local result, recv_err = sock:receive(12)
-        
-    --     if result then
-    --         action = result
-    --         consecutive_errors = 0
-    --         last_successful_frame = frame_counter
-    --     else
-    --         print(string.format("[Lua] RECV ERROR (attempt %d/%d): %s", receive_attempts, max_receive_attempts, recv_err or "unknown"))
-    --         consecutive_errors = consecutive_errors + 1
-            
-    --         if recv_err == "closed" or recv_err == "broken pipe" then
-    --             print("[Lua] Connection lost during receive, attempting reconnection...")
-    --             if connect_to_server() then
-    --                 -- Connection restored, but we've lost this frame's action
-    --                 -- Send a "no action" and continue
-    --                 action = string.char(0,0,0,0,0,0,0,0,0,0,0,0)
-    --                 break
-    --             else
-    --                 break
-    --             end
-    --         elseif recv_err == "timeout" then
-    --             print("[Lua] ⏰ Receive timeout - server might be busy with AI training")
-    --             if receive_attempts < max_receive_attempts then
-    --                 socket.sleep(0.5)  -- Longer pause for timeout
-    --             end
-    --         elseif receive_attempts < max_receive_attempts then
-    --             socket.sleep(0.1)  -- Brief pause before retry
-    --         end
-    --     end
-    -- end
-    
-    if not action then
-        -- print("[Lua] ❌ Failed to receive action after all attempts, using default (no buttons)")
-        action = string.char(0,0,0,0,0,0,0,0,0,0,0,0)  -- Default: no buttons pressed
-        
-        if consecutive_errors >= max_consecutive_errors then
-            print("[Lua] ⚠️  Too many consecutive errors, forcing reconnection...")
-            connect_to_server()
-        end
-    end
-    
-    -- Apply the action to joypad
-    joypad.set{
-        A=action:byte(1)~=0,      -- Button A
-        B=action:byte(2)~=0,      -- Button B  
-        Select=action:byte(3)~=0, -- Select
-        Start=action:byte(4)~=0,  -- Start
-        Up=action:byte(5)~=0,     -- D-pad Up
-        Down=action:byte(6)~=0,   -- D-pad Down
-        Left=action:byte(7)~=0,   -- D-pad Left
-        Right=action:byte(8)~=0,  -- D-pad Right
-        X=action:byte(9)~=0,      -- Button X
-        Y=action:byte(10)~=0,     -- Button Y
-        L=action:byte(11)~=0,     -- Left shoulder
-        R=action:byte(12)~=0,     -- Right shoulder
-    }
     
     -- Debug: Show button presses and connection status occasionally
     if frame_counter % 500 == 0 then
-        local pressed = {}
-        if action:byte(1)~=0 then table.insert(pressed, "A") end
-        if action:byte(2)~=0 then table.insert(pressed, "B") end  
-        if action:byte(4)~=0 then table.insert(pressed, "Start") end
-        if action:byte(5)~=0 then table.insert(pressed, "Up") end
-        if action:byte(6)~=0 then table.insert(pressed, "Down") end
-        if action:byte(7)~=0 then table.insert(pressed, "Left") end
-        if action:byte(8)~=0 then table.insert(pressed, "Right") end
-
         local status_msg = string.format("[Lua] Frame %d: Connection stable, %d consecutive errors",
                                         frame_counter, consecutive_errors)
-        if #pressed > 0 then
-            status_msg = status_msg .. string.format(", Pressing: %s", table.concat(pressed, "+"))
-        end
         print(status_msg)
     end
 
@@ -422,18 +405,36 @@ local function send_frame_and_get_action()
     end
 end
 
+-- wrap the one‑shot functions in an infinite coroutine loop
+local receive_co = coroutine.create(function()
+    while true do
+        receive_input()
+        coroutine.yield()
+    end
+end)
+
+local send_co = coroutine.create(function()
+    while true do
+        send_frame_and_get_action()
+        coroutine.yield()
+    end
+end)
+
 -- Register the function to run every frame
-gui.register(send_frame_and_get_action)
+gui.register(function()
+    coroutine.resume(receive_co)   -- Receive input from server
+    coroutine.resume(send_co)      -- Send frame and get action
+end)
 
 -------------------------------------------------------------------
 -- Main loop - keep the emulator running with robust error handling
 -------------------------------------------------------------------
 print("[Lua] 🤖 Robust Pokemon Bot started!")
-print("[Lua] 🛡️  Features: Auto-reconnect, Error recovery, Overnight stability")
+print("[Lua] 🛡️  Features: Auto-reconnect, Error recovery, Stability")
 
 -- Initial connection
 if connect_to_server() then
-    print("[Lua] 🚀 Bot ready for overnight operation!")
+    print("[Lua] Bot ready for operation!")
 else
     print("[Lua] ❌ Could not establish initial connection")
     print("[Lua] ⚠️  Bot will continue trying to connect during operation...")
@@ -442,7 +443,7 @@ end
 -- Reset reconnection delay for ongoing operation
 reconnect_delay = 2
 
-print("[Lua] 🌙 Starting overnight operation - Press Stop Script to quit")
+print("[Lua] 🌙 Starting operation - Press Stop Script to quit")
 while true do
     emu.frameadvance()
 end
