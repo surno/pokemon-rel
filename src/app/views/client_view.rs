@@ -2,24 +2,27 @@ use crate::app::views::View;
 use crate::pipeline::types::{RawFrame, SharedFrame};
 use egui::TextureOptions;
 use image::{ImageBuffer, Rgb};
+use std::collections::VecDeque;
+use time::OffsetDateTime;
 use uuid::Uuid;
-
 pub struct ClientView {
     client_id: Uuid,
     current_frame: Option<SharedFrame>,
     show_frame: bool,
     show_prediction: bool,
     show_game_state: bool,
+    fps: f32,
 }
 
 impl ClientView {
-    pub fn new(client_id: Uuid, frame: SharedFrame) -> Self {
+    pub fn new(client_id: Uuid, frame: SharedFrame, fps: f32) -> Self {
         Self {
             client_id,
             current_frame: Some(frame),
             show_frame: true,
             show_prediction: true,
             show_game_state: true,
+            fps,
         }
     }
 
@@ -43,7 +46,11 @@ impl ClientView {
             ui.label(format!("Frame Info for Client {}", self.client_id));
             ui.label(format!("Size: {}x{}", frame.raw.width, frame.raw.height));
             ui.label(format!("Pixels: {:?} bytes", frame.raw.pixels.len()));
-            ui.label(format!("Timestamp: {:?}", frame.raw.timestamp));
+            ui.label(format!(
+                "Timestamp: {:?}",
+                OffsetDateTime::from_unix_timestamp(frame.raw.timestamp as i64).unwrap()
+            ));
+            ui.label(format!("FPS: {:.1}", self.fps));
         });
     }
 
