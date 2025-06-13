@@ -13,6 +13,8 @@ local reconnect_delay = 2  -- seconds between reconnection attempts
 local last_successful_frame = 0
 local consecutive_errors = 0
 local max_consecutive_errors = 10
+local rgb = {}
+
 
 -- wall‑clock timestamp of the last health report
 local last_report_time = os.time()
@@ -249,7 +251,6 @@ local function send_frame_and_get_action()
         local screen_file = io.open("screens.ppm", "wb")
         if screen_file then
             local width, height = 256, 384
-            local rgb = {}
             -- peek the first pixel's four BGRA bytes
 
             for i = 1, #screens_raw, 4 do
@@ -280,10 +281,10 @@ local function send_frame_and_get_action()
     -- Convert to RGB based on detected format
     local function convert_to_rgb_from_bgra(data)
         -- Use gsub for much faster bulk processing instead of loops
-        local rgb_data = data:gsub("(.)(.)(.)(.)", function(a, r, g, b)
+        local rgb = data:gsub("(.)(.)(.)(.)", function(a, r, g, b)
             return r .. g .. b  -- Convert BGRA to RGB, skip alpha
         end)
-        return rgb_data
+        return rgb
     end
 
     pixels = convert_to_rgb_from_bgra(screens_raw)
@@ -334,6 +335,8 @@ local function send_frame_and_get_action()
     local max_send_attempts = 3
     local sent = false
     
+    sock:settimeout(15)  -- Increased timeout for more stability
+
     while send_attempts < max_send_attempts and not sent do
         send_attempts = send_attempts + 1
         local result, err = sock:send(blob)
@@ -422,8 +425,8 @@ end)
 
 -- Register the function to run every frame
 gui.register(function()
-    coroutine.resume(receive_co)   -- Receive input from server
     coroutine.resume(send_co)      -- Send frame and get action
+    coroutine.resume(receive_co)   -- Receive input from server
 end)
 
 -------------------------------------------------------------------
