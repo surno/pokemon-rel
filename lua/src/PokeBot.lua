@@ -14,6 +14,9 @@ local last_successful_frame = 0
 local consecutive_errors = 0
 local max_consecutive_errors = 10
 
+-- wall‑clock timestamp of the last health report
+local last_report_time = os.time()
+
 -- helper for 32-bit little-endian
 local function le32(n)
     n = tonumber(n) or 0
@@ -73,6 +76,9 @@ end
 
 local frame_counter = 0
 local first_frame = true
+local target_fps = 60  -- Target FPS
+local frame_time_target = 1.0 / target_fps  -- Target time per frame
+local last_frame_time = socket.gettime()
 
 -- Robust connection function with retry logic
 local function connect_to_server()
@@ -137,6 +143,16 @@ end
 
 -- Robust frame sending with error recovery
 local function send_frame_and_get_action()
+    -- Frame rate limiting
+    local current_time = socket.gettime()
+    local time_since_last_frame = current_time - last_frame_time
+    
+    if time_since_last_frame < frame_time_target then
+        -- Skip this frame to maintain target FPS
+        return
+    end
+    
+    last_frame_time = current_time
     frame_counter = frame_counter + 1
     
     -- Check connection health periodically
@@ -207,15 +223,11 @@ local function send_frame_and_get_action()
     
     -- Convert to RGB based on detected format
     local function convert_to_rgb_from_bgra(data)
-        local pixels = {}
-        for i = 1, #data, 4 do
-            -- GD2 pixel order is A R G B; convert to R G B
-            local r = data:byte(i + 1)     -- source order: R
-            local g = data:byte(i + 2)     -- source order: G
-            local b = data:byte(i + 3)     -- source order: B
-            pixels[#pixels + 1] = string.char(r, g, b)  -- write as R G B
-        end
-        return table.concat(pixels)
+        -- Use gsub for much faster bulk processing instead of loops
+        local rgb_data = data:gsub("(.)(.)(.)(.)", function(a, r, g, b)
+            return r .. g .. b  -- Convert BGRA to RGB, skip alpha
+        end)
+        return rgb_data
     end
 
     pixels = convert_to_rgb_from_bgra(screens_raw)
@@ -308,42 +320,43 @@ local function send_frame_and_get_action()
     local receive_attempts = 0
     local max_receive_attempts = 3
     local action = nil
+
     
-    while receive_attempts < max_receive_attempts and not action do
-        receive_attempts = receive_attempts + 1
-        local result, recv_err = sock:receive(12)
+    -- while receive_attempts < max_receive_attempts and not action do
+    --     receive_attempts = receive_attempts + 1
+    --     local result, recv_err = sock:receive(12)
         
-        if result then
-            action = result
-            consecutive_errors = 0
-            last_successful_frame = frame_counter
-        else
-            print(string.format("[Lua] RECV ERROR (attempt %d/%d): %s", receive_attempts, max_receive_attempts, recv_err or "unknown"))
-            consecutive_errors = consecutive_errors + 1
+    --     if result then
+    --         action = result
+    --         consecutive_errors = 0
+    --         last_successful_frame = frame_counter
+    --     else
+    --         print(string.format("[Lua] RECV ERROR (attempt %d/%d): %s", receive_attempts, max_receive_attempts, recv_err or "unknown"))
+    --         consecutive_errors = consecutive_errors + 1
             
-            if recv_err == "closed" or recv_err == "broken pipe" then
-                print("[Lua] Connection lost during receive, attempting reconnection...")
-                if connect_to_server() then
-                    -- Connection restored, but we've lost this frame's action
-                    -- Send a "no action" and continue
-                    action = string.char(0,0,0,0,0,0,0,0,0,0,0,0)
-                    break
-                else
-                    break
-                end
-            elseif recv_err == "timeout" then
-                print("[Lua] ⏰ Receive timeout - server might be busy with AI training")
-                if receive_attempts < max_receive_attempts then
-                    socket.sleep(0.5)  -- Longer pause for timeout
-                end
-            elseif receive_attempts < max_receive_attempts then
-                socket.sleep(0.1)  -- Brief pause before retry
-            end
-        end
-    end
+    --         if recv_err == "closed" or recv_err == "broken pipe" then
+    --             print("[Lua] Connection lost during receive, attempting reconnection...")
+    --             if connect_to_server() then
+    --                 -- Connection restored, but we've lost this frame's action
+    --                 -- Send a "no action" and continue
+    --                 action = string.char(0,0,0,0,0,0,0,0,0,0,0,0)
+    --                 break
+    --             else
+    --                 break
+    --             end
+    --         elseif recv_err == "timeout" then
+    --             print("[Lua] ⏰ Receive timeout - server might be busy with AI training")
+    --             if receive_attempts < max_receive_attempts then
+    --                 socket.sleep(0.5)  -- Longer pause for timeout
+    --             end
+    --         elseif receive_attempts < max_receive_attempts then
+    --             socket.sleep(0.1)  -- Brief pause before retry
+    --         end
+    --     end
+    -- end
     
     if not action then
-        print("[Lua] ❌ Failed to receive action after all attempts, using default (no buttons)")
+        -- print("[Lua] ❌ Failed to receive action after all attempts, using default (no buttons)")
         action = string.char(0,0,0,0,0,0,0,0,0,0,0,0)  -- Default: no buttons pressed
         
         if consecutive_errors >= max_consecutive_errors then
@@ -378,20 +391,34 @@ local function send_frame_and_get_action()
         if action:byte(6)~=0 then table.insert(pressed, "Down") end
         if action:byte(7)~=0 then table.insert(pressed, "Left") end
         if action:byte(8)~=0 then table.insert(pressed, "Right") end
-        
-        local status_msg = string.format("[Lua] Frame %d: Connection stable, %d consecutive errors", 
+
+        local status_msg = string.format("[Lua] Frame %d: Connection stable, %d consecutive errors",
                                         frame_counter, consecutive_errors)
         if #pressed > 0 then
             status_msg = status_msg .. string.format(", Pressing: %s", table.concat(pressed, "+"))
         end
         print(status_msg)
     end
-    
+
     -- Periodic connection health report
-    if frame_counter % 2000 == 0 then
-        local uptime_frames = frame_counter - last_successful_frame
-        print(string.format("[Lua] 🔋 Health Report - Frame %d, %d frames since last success, %d errors", 
-                           frame_counter, uptime_frames, consecutive_errors))
+    if frame_counter % 500 == 0 then
+        local now = os.time()
+        local uptime_seconds = now - last_report_time
+        local uptime_frames  = frame_counter - last_successful_frame
+
+        -- avoid division by zero
+        local fps = uptime_seconds > 0 and (uptime_frames / uptime_seconds) or 0
+
+        print(string.format(
+            "[Lua] 🕒 Uptime: %d seconds, Frames since last success: %d, Errors: %d",
+            uptime_seconds, uptime_frames, consecutive_errors))
+
+        print(string.format(
+            "[Lua] 🔋 Health Report - Frame %d, %d frames since last success, %d errors, fps: %.2f",
+            frame_counter, uptime_frames, consecutive_errors, fps))
+
+        last_report_time = now
+        last_successful_frame = frame_counter
     end
 end
 

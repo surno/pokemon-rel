@@ -106,14 +106,6 @@ impl FrameReader {
                     debug!("Frame data size: {}", frame_data.len());
                     let frame_result = Frame::try_from(frame_data.as_slice());
 
-                    // Send action response (expected by Lua client)
-                    let action = [0u8; 12]; // Default: no buttons pressed
-                    let action_result = self.reader.write_all(&action).await;
-                    if let Err(e) = action_result {
-                        debug!("Error sending action response: {:?}", e);
-                        return Err(FrameError::ReadError(e));
-                    }
-
                     return frame_result;
                 }
             }
