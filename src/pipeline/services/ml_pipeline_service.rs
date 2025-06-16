@@ -18,7 +18,7 @@ pub struct MLPipelineService {
 impl MLPipelineService {
     pub fn new() -> Self {
         Self {
-            preprocessing_service: PreprocessingService,
+            preprocessing_service: PreprocessingService::new(),
             rl_service: RLService,
             action_service: ActionService,
         }

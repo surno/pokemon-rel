@@ -1,15 +1,24 @@
 use crate::error::AppError;
-use crate::pipeline::services::preprocessing::frame_hashing;
+use crate::pipeline::services::preprocessing::frame_hashing::FrameHashingService;
 use crate::pipeline::types::{EnrichedFrame, GameState, RawFrame};
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use tower::Service;
-use tracing::info;
 
 #[derive(Debug, Clone)]
-pub struct PreprocessingService;
+pub struct PreprocessingService {
+    frame_hashing_service: FrameHashingService,
+}
+
+impl PreprocessingService {
+    pub fn new() -> Self {
+        Self {
+            frame_hashing_service: FrameHashingService::new(vec![]),
+        }
+    }
+}
 
 impl Service<RawFrame> for PreprocessingService {
     type Response = EnrichedFrame;
@@ -21,7 +30,7 @@ impl Service<RawFrame> for PreprocessingService {
     }
 
     fn call(&mut self, request: RawFrame) -> Self::Future {
-        let frame_hash = frame_hashing::get_frame_hash(&request);
+        let frame_hash = self.frame_hashing_service.is_frame_in_hashes(&request);
 
         Box::pin(async move {
             let game_state = GameState {

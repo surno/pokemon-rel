@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+bloomfilter = { version = "3.0.0" }
 serde = { version = "1.0.210", features = ["derive"] }
 futures = { version = "0.3" }
 imghash = { git = "https://github.com/surno/imghash-rs.git" }
