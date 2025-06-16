@@ -17,24 +17,34 @@ impl PokemonFrameHandler {
 }
 
 impl FrameHandler for PokemonFrameHandler {
-    fn handle_ping(&self) -> Result<(), AppError> {
+    fn handle_ping(&self) -> impl Future<Output = Result<(), AppError>> {
         debug!("Received ping");
-        Ok(())
+        Box::pin(async { Ok(()) })
     }
 
-    fn handle_handshake(&self, version: u32, name: String, program: u16) -> Result<(), AppError> {
+    fn handle_handshake(
+        &self,
+        version: u32,
+        name: String,
+        program: u16,
+    ) -> impl Future<Output = Result<(), AppError>> {
         debug!(
             "Received handshake: version={}, name={}, program={}",
             version, name, program
         );
-        Ok(())
+        Box::pin(async { Ok(()) })
     }
 
-    fn handle_image(&mut self, width: u32, height: u32, pixels: Vec<u8>) -> Result<(), AppError> {
+    fn handle_image(
+        &mut self,
+        width: u32,
+        height: u32,
+        pixels: Vec<u8>,
+    ) -> impl Future<Output = Result<(), AppError>> {
         debug!("Received image: width={}, height={}", width, height);
         let raw_frame = RawFrame::new(width, height, pixels);
         self.fanout_service.call(raw_frame);
-        Ok(())
+        Box::pin(async { Ok(()) })
     }
 
     fn handle_image_gd2(
@@ -42,15 +52,15 @@ impl FrameHandler for PokemonFrameHandler {
         width: u32,
         height: u32,
         gd2_data: Vec<u8>,
-    ) -> Result<(), AppError> {
+    ) -> impl Future<Output = Result<(), AppError>> {
         debug!("Received image GD2: width={}, height={}", width, height);
         let raw_frame = RawFrame::new(width, height, gd2_data);
         self.fanout_service.call(raw_frame);
-        Ok(())
+        Box::pin(async { Ok(()) })
     }
 
-    fn handle_shutdown(&self) -> Result<(), AppError> {
+    fn handle_shutdown(&self) -> impl Future<Output = Result<(), AppError>> {
         debug!("Received shutdown");
-        Ok(())
+        Box::pin(async { Ok(()) })
     }
 }
