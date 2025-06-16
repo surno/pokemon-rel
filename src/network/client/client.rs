@@ -1,11 +1,19 @@
 use crate::{
     error::AppError,
-    network::frame::frame_reader::FrameReader,
-    network::frame_handler::{DelegatingRouter, PokemonFrameHandler},
+    network::{
+        Frame,
+        frame::frame_reader::FrameReader,
+        frame_handler::{DelegatingRouter, PokemonFrameHandler},
+    },
 };
+use std::sync::Arc;
 use tokio::{
     net::TcpStream,
-    sync::broadcast::{self, Sender},
+    sync::{
+        Mutex,
+        broadcast::{self, Sender},
+        mpsc,
+    },
 };
 use tracing::{debug, error, info};
 use uuid::Uuid;
@@ -15,7 +23,7 @@ pub struct Client {
     id: Uuid,
     reader: FrameReader,
     shutdown_tx: Sender<()>,
-    router: DelegatingRouter<PokemonFrameHandler>,
+    frame_tx: mpsc::Sender<Frame>,
 }
 
 #[derive(Debug)]
@@ -44,12 +52,26 @@ impl Client {
     pub fn new(stream: TcpStream, pokemon_handler: PokemonFrameHandler) -> (Self, ClientHandle) {
         let (shutdown_tx, _) = broadcast::channel(1);
         let id = Uuid::new_v4();
+        let (tx, mut rx) = mpsc::channel::<Frame>(1000);
+        let router = Arc::new(Mutex::new(DelegatingRouter::new(pokemon_handler)));
+        tokio::spawn(async move {
+            while let Some(frame) = rx.recv().await {
+                match router.try_lock() {
+                    Ok(mut router) => {
+                        let _ = router.route(&frame).await;
+                    }
+                    Err(e) => {
+                        error!("Error locking router for {:?}: {:?}", id, e);
+                    }
+                }
+            }
+        });
         (
             Self {
                 id,
                 reader: FrameReader::new(stream),
                 shutdown_tx: shutdown_tx.clone(),
-                router: DelegatingRouter::new(pokemon_handler),
+                frame_tx: tx,
             },
             ClientHandle { id, shutdown_tx },
         )
@@ -61,14 +83,12 @@ impl Client {
             return Ok(false);
         }
 
-        match self.reader.read_frame().await {
-            Ok(frame) => {
-                // Frame received (verbose logging removed)
-                self.router.route(&frame).await?;
-                Ok(true)
-            }
-            Err(e) => Err(AppError::Frame(e)),
-        }
+        let frame = self.reader.read_frame().await?;
+        self.frame_tx.send(frame).await.map_err(|e| {
+            error!("Error sending frame to client {:?}: {:?}", self.id, e);
+            AppError::Client(e.to_string())
+        })?;
+        Ok(true)
     }
 
     pub async fn run_pipeline(&mut self) -> Result<(), AppError> {
