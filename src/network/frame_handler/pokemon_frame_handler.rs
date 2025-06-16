@@ -43,8 +43,11 @@ impl FrameHandler for PokemonFrameHandler {
     ) -> impl Future<Output = Result<(), AppError>> {
         debug!("Received image: width={}, height={}", width, height);
         let raw_frame = RawFrame::new(width, height, pixels);
-        self.fanout_service.call(raw_frame);
-        Box::pin(async { Ok(()) })
+        Box::pin(async move {
+            self.fanout_service.call(raw_frame).await?;
+            // TODO: do something with the action
+            Ok(())
+        })
     }
 
     fn handle_image_gd2(
@@ -55,8 +58,11 @@ impl FrameHandler for PokemonFrameHandler {
     ) -> impl Future<Output = Result<(), AppError>> {
         debug!("Received image GD2: width={}, height={}", width, height);
         let raw_frame = RawFrame::new(width, height, gd2_data);
-        self.fanout_service.call(raw_frame);
-        Box::pin(async { Ok(()) })
+        Box::pin(async move {
+            self.fanout_service.call(raw_frame).await?;
+            // TODO: do something with the action
+            Ok(())
+        })
     }
 
     fn handle_shutdown(&self) -> impl Future<Output = Result<(), AppError>> {

@@ -22,7 +22,6 @@ impl Service<RawFrame> for PreprocessingService {
 
     fn call(&mut self, request: RawFrame) -> Self::Future {
         let frame_hash = frame_hashing::get_frame_hash(&request);
-        info!("Frame hash: {}", frame_hash);
 
         Box::pin(async move {
             let game_state = GameState {
