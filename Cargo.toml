@@ -4,8 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-futures = { version = "0.3" }
 serde = { version = "1.0.210", features = ["derive"] }
+futures = { version = "0.3" }
+imghash = { git = "https://github.com/surno/imghash-rs.git" }
 serde_json = { version = "1.0.130" }
 thiserror = { version = "2.0.12" }
 time = { version = "0.3.41" }
@@ -21,5 +22,5 @@ uuid = { version = "1.13.0", features = ["v4"] }
 egui_extras = { version = "0.31.1", features = ["all_loaders"] }
 egui = { version = "0.31.1" }
 eframe = { version = "0.31.1" }
-image = { version = "0.25" }
+image = { version = "0.25.6" }
 tokio-stream = { version = "0.1" }

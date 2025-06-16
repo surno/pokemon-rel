@@ -2,7 +2,6 @@ use crate::app::views::View;
 use crate::pipeline::types::{RawFrame, SharedFrame};
 use egui::TextureOptions;
 use image::{ImageBuffer, Rgb};
-use std::collections::VecDeque;
 use time::OffsetDateTime;
 use uuid::Uuid;
 pub struct ClientView {

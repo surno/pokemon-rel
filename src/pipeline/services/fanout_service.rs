@@ -1,11 +1,11 @@
-use std::{
-    pin::Pin,
-    task::{Context, Poll},
-};
-
+use crate::error::AppError;
 use crate::pipeline::{
     services::MLPipelineService,
     types::{GameAction, RawFrame, SharedFrame},
+};
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
 };
 use tokio::sync::broadcast;
 use tower::Service;
@@ -33,7 +33,7 @@ impl FanoutService {
 
 impl Service<RawFrame> for FanoutService {
     type Response = GameAction;
-    type Error = crate::error::PipelineError;
+    type Error = AppError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {

@@ -1,4 +1,4 @@
-use crate::error::ActionServiceError;
+use crate::error::AppError;
 use crate::pipeline::types::{GameAction, RLPrediction};
 use std::future::Future;
 use std::pin::Pin;
@@ -10,7 +10,7 @@ pub struct ActionService;
 
 impl Service<RLPrediction> for ActionService {
     type Response = GameAction;
-    type Error = ActionServiceError;
+    type Error = AppError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {

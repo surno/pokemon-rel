@@ -1,5 +1,5 @@
 use crate::{
-    ClientError, NetworkError,
+    error::AppError,
     network::frame::frame_reader::FrameReader,
     network::frame_handler::{DelegatingRouter, PokemonFrameHandler},
 };
@@ -25,7 +25,7 @@ pub struct ClientHandle {
 }
 
 impl ClientHandle {
-    pub async fn send_shutdown(&self) -> Result<(), ClientError> {
+    pub async fn send_shutdown(&self) -> Result<(), AppError> {
         match self.shutdown_tx.send(()) {
             Ok(_) => Ok(()),
             Err(e) => {
@@ -34,7 +34,7 @@ impl ClientHandle {
                     self.id,
                     e.to_string()
                 );
-                Err(ClientError::ShutdownError(self.id))
+                Err(AppError::ClientShutdown(self.id))
             }
         }
     }
@@ -55,7 +55,7 @@ impl Client {
         )
     }
 
-    pub async fn handle_next_message(&mut self) -> Result<bool, ClientError> {
+    pub async fn handle_next_message(&mut self) -> Result<bool, AppError> {
         debug!("Handling next message for {:?}", self.id);
         if !self.is_connected().await {
             return Ok(false);
@@ -64,24 +64,21 @@ impl Client {
         match self.reader.read_frame().await {
             Ok(frame) => {
                 // Frame received (verbose logging removed)
-                self.router
-                    .route(&frame)
-                    .await
-                    .map_err(|e| ClientError::RouteError(e))?;
+                self.router.route(&frame).await?;
                 Ok(true)
             }
-            Err(e) => Err(ClientError::ReadError(e)),
+            Err(e) => Err(AppError::Frame(e)),
         }
     }
 
-    pub async fn run_pipeline(&mut self) -> Result<(), ClientError> {
+    pub async fn run_pipeline(&mut self) -> Result<(), AppError> {
         info!("Running client pipeline for {:?}", self.id);
         let mut shutdown_rx = self.shutdown_tx.subscribe();
         loop {
             tokio::select! {
                 biased;
                 _ = shutdown_rx.recv() => {
-                    self.stop().await.map_err(|e: NetworkError| ClientError::StopError(e))?;
+                    self.stop().await?;
                     debug!("Client pipeline for {:?} received shutdown", self.id);
                     break;
                 }
@@ -115,12 +112,12 @@ impl Client {
         self.reader.is_connected().await
     }
 
-    pub async fn stop(&mut self) -> Result<(), NetworkError> {
+    pub async fn stop(&mut self) -> Result<(), AppError> {
         info!("Shutting down client {:?}", self.id);
         self.reader
             .shutdown()
             .await
-            .map_err(|e| NetworkError::ShutdownError(e.to_string()))?;
+            .map_err(|e| AppError::Client(e.to_string()))?;
         Ok(())
     }
 }

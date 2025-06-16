@@ -1,3 +1,4 @@
+use crate::error::AppError;
 use crate::pipeline::services::{
     action_service::ActionService, preprocessing::PreprocessingService, rl_service::RLService,
 };
@@ -26,7 +27,7 @@ impl MLPipelineService {
 
 impl Service<RawFrame> for MLPipelineService {
     type Response = GameAction;
-    type Error = crate::error::PipelineError;
+    type Error = AppError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {

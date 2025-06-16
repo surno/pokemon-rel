@@ -5,7 +5,5 @@ pub mod pipeline;
 
 pub use app::multiclient_app::MultiClientApp;
 
-pub use error::{BotError, ClientError, NetworkError};
-
 pub use network::client::Client;
 pub use network::manager::NetworkManager;

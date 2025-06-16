@@ -1,14 +1,11 @@
 use std::time::SystemTime;
-use std::{
-    collections::{HashMap, VecDeque},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::app::views::{View, client_view::ClientView};
 use crate::network::client::client_manager::ClientManager;
-use tracing::{debug, info};
+use tracing::debug;
 
 struct FpsTracker {
     last_timestamp: SystemTime,
@@ -197,7 +194,7 @@ impl eframe::App for MultiClientApp {
                         .get(&selected_client)
                     {
                         ui.heading(format!("Detailed View - Client {}", selected_client));
-                        let mut fps_tracker = self.fps_tracker.get_mut(&selected_client).unwrap();
+                        let fps_tracker = self.fps_tracker.get_mut(&selected_client).unwrap();
                         let fps = fps_tracker.get_fps();
                         let mut client_view = ClientView::new(selected_client, frame.clone(), fps);
                         client_view.draw(ui);

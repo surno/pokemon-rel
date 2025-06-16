@@ -1,6 +1,6 @@
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, Interest};
 use tokio::net::TcpStream;
-use tracing::{debug, info};
+use tracing::debug;
 
 use crate::{error::FrameError, network::Frame};
 
@@ -36,7 +36,7 @@ impl FrameReader {
     }
 
     pub async fn shutdown(&mut self) -> Result<(), FrameError> {
-        self.reader.shutdown().await.map_err(FrameError::ReadError)
+        self.reader.shutdown().await.map_err(FrameError::Read)
     }
 
     pub async fn read_frame(&mut self) -> Result<Frame, FrameError> {
@@ -51,7 +51,7 @@ impl FrameReader {
                             .reader
                             .read(&mut temp_buffer)
                             .await
-                            .map_err(FrameError::ReadError)?;
+                            .map_err(FrameError::Read)?;
 
                         if bytes_read == 0 {
                             debug!("Connection closed while reading frame length");
@@ -83,7 +83,7 @@ impl FrameReader {
                             .reader
                             .read(&mut temp_buffer)
                             .await
-                            .map_err(FrameError::ReadError)?;
+                            .map_err(FrameError::Read)?;
 
                         if bytes_read == 0 {
                             debug!("Unable to read, is the connection closed?");

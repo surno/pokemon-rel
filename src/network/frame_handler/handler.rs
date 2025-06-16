@@ -1,18 +1,18 @@
-use crate::error::FrameError;
+use crate::error::AppError;
 use crate::network::frame::Frame;
 use std::fmt::Debug;
 
 pub trait FrameHandler: Send + Sync + 'static + Debug {
-    fn handle_ping(&self) -> Result<(), FrameError>;
-    fn handle_handshake(&self, version: u32, name: String, program: u16) -> Result<(), FrameError>;
-    fn handle_image(&mut self, width: u32, height: u32, pixels: Vec<u8>) -> Result<(), FrameError>;
+    fn handle_ping(&self) -> Result<(), AppError>;
+    fn handle_handshake(&self, version: u32, name: String, program: u16) -> Result<(), AppError>;
+    fn handle_image(&mut self, width: u32, height: u32, pixels: Vec<u8>) -> Result<(), AppError>;
     fn handle_image_gd2(
         &mut self,
         width: u32,
         height: u32,
         gd2_data: Vec<u8>,
-    ) -> Result<(), FrameError>;
-    fn handle_shutdown(&self) -> Result<(), FrameError>;
+    ) -> Result<(), AppError>;
+    fn handle_shutdown(&self) -> Result<(), AppError>;
 }
 
 #[derive(Debug)]
@@ -25,7 +25,7 @@ impl<H: FrameHandler> DelegatingRouter<H> {
         Self { handler }
     }
 
-    pub async fn route(&mut self, frame: &Frame) -> Result<(), FrameError> {
+    pub async fn route(&mut self, frame: &Frame) -> Result<(), AppError> {
         match frame {
             Frame::Ping => self.handler.handle_ping(),
             Frame::Handshake {

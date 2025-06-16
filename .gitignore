@@ -1,5 +1,7 @@
 *.nds
 *.sav
+*.avi
+assets/
 
 # IDE
 .vscode/

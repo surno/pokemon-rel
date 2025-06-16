@@ -1,4 +1,4 @@
-use crate::error::FrameError;
+use crate::error::AppError;
 use crate::network::frame_handler::FrameHandler;
 use crate::pipeline::services::FanoutService;
 use crate::pipeline::types::RawFrame;
@@ -17,12 +17,12 @@ impl PokemonFrameHandler {
 }
 
 impl FrameHandler for PokemonFrameHandler {
-    fn handle_ping(&self) -> Result<(), FrameError> {
+    fn handle_ping(&self) -> Result<(), AppError> {
         debug!("Received ping");
         Ok(())
     }
 
-    fn handle_handshake(&self, version: u32, name: String, program: u16) -> Result<(), FrameError> {
+    fn handle_handshake(&self, version: u32, name: String, program: u16) -> Result<(), AppError> {
         debug!(
             "Received handshake: version={}, name={}, program={}",
             version, name, program
@@ -30,10 +30,10 @@ impl FrameHandler for PokemonFrameHandler {
         Ok(())
     }
 
-    fn handle_image(&mut self, width: u32, height: u32, pixels: Vec<u8>) -> Result<(), FrameError> {
+    fn handle_image(&mut self, width: u32, height: u32, pixels: Vec<u8>) -> Result<(), AppError> {
         debug!("Received image: width={}, height={}", width, height);
         let raw_frame = RawFrame::new(width, height, pixels);
-        let _result = self.fanout_service.call(raw_frame);
+        self.fanout_service.call(raw_frame);
         Ok(())
     }
 
@@ -42,15 +42,14 @@ impl FrameHandler for PokemonFrameHandler {
         width: u32,
         height: u32,
         gd2_data: Vec<u8>,
-    ) -> Result<(), FrameError> {
+    ) -> Result<(), AppError> {
         debug!("Received image GD2: width={}, height={}", width, height);
-        // convert gd2 data to raw frame
         let raw_frame = RawFrame::new(width, height, gd2_data);
-        let _result = self.fanout_service.call(raw_frame);
+        self.fanout_service.call(raw_frame);
         Ok(())
     }
 
-    fn handle_shutdown(&self) -> Result<(), FrameError> {
+    fn handle_shutdown(&self) -> Result<(), AppError> {
         debug!("Received shutdown");
         Ok(())
     }

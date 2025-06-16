@@ -1,7 +1,7 @@
 use crate::network::frame_handler::PokemonFrameHandler;
 use crate::pipeline::services::FanoutService;
 use crate::{
-    NetworkError, network::client::Client, network::client::ClientHandle,
+    error::AppError, network::client::Client, network::client::ClientHandle,
     network::client::client_manager::ClientManager,
 };
 use std::sync::Arc;
@@ -28,10 +28,10 @@ pub struct NetworkHandle {
 }
 
 impl NetworkHandle {
-    pub async fn shutdown(&self) -> Result<(), NetworkError> {
+    pub async fn shutdown(&self) -> Result<(), AppError> {
         self.shutdown_tx
             .send(())
-            .map_err(|e| NetworkError::ShutdownError(e.to_string()))?;
+            .map_err(|e| AppError::Client(e.to_string()))?;
         Ok(())
     }
 
@@ -59,15 +59,15 @@ impl NetworkManager {
         )
     }
 
-    pub async fn start(&mut self) -> Result<(), NetworkError> {
+    pub async fn start(&mut self) -> Result<(), AppError> {
         info!("Starting network manager on port {}", self.port);
         if self.listener.is_some() {
-            return Err(NetworkError::AlreadyStarted);
+            return Err(AppError::AlreadyStarted);
         }
         self.listener = Some(
             TcpListener::bind(format!("0.0.0.0:{}", self.port))
                 .await
-                .map_err(|e| NetworkError::BindError(e, self.port))?,
+                .map_err(|e| AppError::Bind(e, self.port))?,
         );
         let mut shutdown_rx = self.shutdown_tx.subscribe();
         loop {

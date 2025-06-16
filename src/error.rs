@@ -3,97 +3,65 @@ use std::{array::TryFromSliceError, string::FromUtf8Error};
 use thiserror::Error;
 use uuid::Uuid;
 
-// Main Applicaiton Error Type
-
+// The single, top-level application error type.
 #[derive(Error, Debug)]
-pub enum BotError {
-    #[error("Network Error: {0}")]
-    NetworkError(#[from] NetworkError),
-    #[error("Client Error: {0}")]
-    ClientError(#[from] ClientError),
-    #[error("Frame Error: {0}")]
-    FrameError(#[from] FrameError),
-}
-
-// Network Error Type
-#[derive(Error, Debug)]
-pub enum NetworkError {
+pub enum AppError {
+    // Network Errors
     #[error("Failed to bind to port {1}: {0}")]
-    BindError(std::io::Error, u16),
+    Bind(#[source] std::io::Error, u16),
     #[error("Failed to accept connection: {0}")]
-    AcceptError(std::io::Error),
-    #[error("Failed to shutdown the server: {0}")]
-    ShutdownError(String),
+    Accept(#[source] std::io::Error),
+    #[error("Server shutdown error: {0}")]
+    ServerShutdown(String),
     #[error("The server is already started.")]
     AlreadyStarted,
+
+    // Client Errors
+    #[error("Error sending shutdown to client handle {0}")]
+    ClientShutdown(Uuid),
+    #[error("A client operation failed: {0}")]
+    Client(String),
+
+    // Frame-related errors are wrapped
+    #[error("Frame error: {0}")]
+    Frame(#[from] FrameError),
+
+    // Pipeline/Service Errors
+    #[error("Preprocessing error: {0}")]
+    Preprocessing(String),
+    #[error("Reinforcement learning service error: {0}")]
+    RLService(String),
+    #[error("Action service error: {0}")]
+    ActionService(String),
+
+    // Generic I/O error
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
 }
 
-#[derive(Error, Debug)]
-pub enum ClientError {
-    #[error("Failed to read message: {0}")]
-    ReadError(FrameError),
-    #[error("Failed to write message: {0}")]
-    WriteError(std::io::Error),
-    #[error("Failed to send shutdown to client handle: {0}")]
-    ShutdownError(Uuid),
-    #[error("Failed to stop client: {0}")]
-    StopError(NetworkError),
-    #[error("Failed to route frame: {0}")]
-    RouteError(FrameError),
-}
-
-#[derive(Error, Debug)]
-pub enum PipelineError {
-    #[error("Failed to process frame: {0}")]
-    FrameError(#[from] FrameError),
-    #[error("Failed to preprocess frame: {0}")]
-    PreprocessingError(#[from] PreprocessingError),
-    #[error("Failed to predict: {0}")]
-    RLServiceError(#[from] RLServiceError),
-    #[error("Failed to select action: {0}")]
-    ActionServiceError(#[from] ActionServiceError),
-}
-
+// FrameError remains a detailed, specific error type for frame parsing.
 #[derive(Error, Debug)]
 pub enum FrameError {
     #[error("Failed to read frame: {0}")]
-    ReadError(std::io::Error),
+    Read(std::io::Error),
     #[error("Invalid frame length, expected at least 5 bytes, got {0}")]
     InvalidFrameLength(usize),
     #[error("Invalid frame tag, got {0}")]
     InvalidFrameTag(u8),
-    #[error("Invalid program, got {0}")]
+    #[error("Invalid program from slice: {0}")]
     InvalidProgram(TryFromSliceError),
-    #[error("Invalid version, got {0}")]
+    #[error("Invalid version from slice: {0}")]
     InvalidVersion(TryFromSliceError),
-    #[error("Invalid name length, got {0}")]
+    #[error("Invalid name length from slice: {0}")]
     InvalidNameLength(TryFromSliceError),
-    #[error("Invalid name, got {0}")]
+    #[error("Invalid name from utf8: {0}")]
     InvalidName(FromUtf8Error),
-    #[error("Invalid width, got {0}")]
+    #[error("Invalid width from slice: {0}")]
     InvalidWidth(TryFromSliceError),
-    #[error("Invalid height, got {0}")]
+    #[error("Invalid height from slice: {0}")]
     InvalidHeight(TryFromSliceError),
     #[error("Invalid pixels length, got {0}x{1} = {2}, expected {3}")]
     InvalidPixelsLength(u32, u32, usize, usize),
     #[error("Failed to convert slice to frame: {0}")]
-    TryFromSliceError(TryFromSliceError),
-}
-
-#[derive(Error, Debug)]
-pub enum PreprocessingError {
-    #[error("Failed to preprocess frame: {0}")]
-    PreprocessingError(String),
-}
-
-#[derive(Error, Debug)]
-pub enum RLServiceError {
-    #[error("Failed to predict: {0}")]
-    PredictionError(String),
-}
-
-#[derive(Error, Debug)]
-pub enum ActionServiceError {
-    #[error("Failed to select action: {0}")]
-    ActionSelectionError(String),
+    TryFromSlice(TryFromSliceError),
 }
