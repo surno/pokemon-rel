@@ -1,12 +1,11 @@
 use crate::error::AppError;
 use crate::pipeline::services::preprocessing::frame_hashing::FrameHashingService;
-use crate::pipeline::types::{EnrichedFrame, GameState, RawFrame};
+use crate::pipeline::types::{EnrichedFrame, GameState, GameStateData, RawFrame};
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use tower::Service;
-use tracing::info;
 
 #[derive(Debug, Clone)]
 pub struct PreprocessingService {
@@ -32,10 +31,15 @@ impl Service<RawFrame> for PreprocessingService {
 
     fn call(&mut self, request: RawFrame) -> Self::Future {
         let is_intro = self.frame_hashing_service.is_frame_in_hashes(&request);
-        info!("Frame is intro: {}", is_intro);
+        let game_state = if is_intro {
+            GameState::Intro
+        } else {
+            GameState::InGame
+        };
 
         Box::pin(async move {
-            let game_state = GameState {
+            let game_state = GameStateData {
+                game_state,
                 player_position: (0.0, 0.0),
                 pokemon_count: 0,
             };

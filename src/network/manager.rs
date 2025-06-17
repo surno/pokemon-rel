@@ -95,6 +95,7 @@ impl NetworkManager {
         let hashes = fs::read_to_string("./assets/intro_hashes.txt")
             .await
             .unwrap();
+
         let hashes = hashes.lines().map(|line| line.to_string()).collect();
 
         let (fanout_service, viz_receiver) = FanoutService::new(10, hashes);
