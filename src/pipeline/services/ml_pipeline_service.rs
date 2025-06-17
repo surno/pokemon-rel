@@ -16,9 +16,9 @@ pub struct MLPipelineService {
 }
 
 impl MLPipelineService {
-    pub fn new() -> Self {
+    pub fn new(hashes: Vec<String>) -> Self {
         Self {
-            preprocessing_service: PreprocessingService::new(),
+            preprocessing_service: PreprocessingService::new(hashes),
             rl_service: RLService,
             action_service: ActionService,
         }

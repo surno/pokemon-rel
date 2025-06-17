@@ -18,9 +18,12 @@ pub struct FanoutService {
 }
 
 impl FanoutService {
-    pub fn new(visualization_capacity: usize) -> (Self, broadcast::Receiver<SharedFrame>) {
+    pub fn new(
+        visualization_capacity: usize,
+        hashes: Vec<String>,
+    ) -> (Self, broadcast::Receiver<SharedFrame>) {
         let (visualization_tx, visualization_rx) = broadcast::channel(visualization_capacity);
-        let ml_service = MLPipelineService::new();
+        let ml_service = MLPipelineService::new(hashes);
         (
             Self {
                 visualization_tx,

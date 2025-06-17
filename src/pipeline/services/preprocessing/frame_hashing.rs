@@ -11,7 +11,7 @@ pub struct FrameHashingService {
 
 impl FrameHashingService {
     pub fn new(hashes: Vec<String>) -> Self {
-        let mut bloom_filter: Bloom<String> = Bloom::new_for_fp_rate(1000, 0.01).unwrap();
+        let mut bloom_filter: Bloom<String> = Bloom::new_for_fp_rate(1000, 0.1).unwrap();
         for hash in hashes {
             bloom_filter.set(&hash);
         }

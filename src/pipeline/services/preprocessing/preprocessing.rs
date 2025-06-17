@@ -6,6 +6,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use tower::Service;
+use tracing::info;
 
 #[derive(Debug, Clone)]
 pub struct PreprocessingService {
@@ -13,9 +14,9 @@ pub struct PreprocessingService {
 }
 
 impl PreprocessingService {
-    pub fn new() -> Self {
+    pub fn new(hashes: Vec<String>) -> Self {
         Self {
-            frame_hashing_service: FrameHashingService::new(vec![]),
+            frame_hashing_service: FrameHashingService::new(hashes),
         }
     }
 }
@@ -30,7 +31,8 @@ impl Service<RawFrame> for PreprocessingService {
     }
 
     fn call(&mut self, request: RawFrame) -> Self::Future {
-        let frame_hash = self.frame_hashing_service.is_frame_in_hashes(&request);
+        let is_intro = self.frame_hashing_service.is_frame_in_hashes(&request);
+        info!("Frame is intro: {}", is_intro);
 
         Box::pin(async move {
             let game_state = GameState {

@@ -190,8 +190,10 @@ mod tests {
         let client = listener.accept().await;
         assert!(client.is_ok());
         let (stream, _) = client.unwrap();
-        let (mut client, handle) =
-            Client::new(stream, PokemonFrameHandler::new(FanoutService::new(10).0));
+        let (mut client, handle) = Client::new(
+            stream,
+            PokemonFrameHandler::new(FanoutService::new(10, vec![]).0),
+        );
         let pipeline_task = tokio::spawn(async move {
             let result = client.run_pipeline().await;
             assert!(result.is_ok());

@@ -5,6 +5,7 @@ use crate::{
     network::client::client_manager::ClientManager,
 };
 use std::sync::Arc;
+use tokio::fs;
 use tokio::{
     net::{TcpListener, TcpStream},
     sync::{RwLock, broadcast},
@@ -91,7 +92,12 @@ impl NetworkManager {
     pub async fn spawn_client_pipeline(&self, stream: TcpStream) {
         let addr = stream.peer_addr().unwrap();
 
-        let (fanout_service, viz_receiver) = FanoutService::new(10);
+        let hashes = fs::read_to_string("./assets/intro_hashes.txt")
+            .await
+            .unwrap();
+        let hashes = hashes.lines().map(|line| line.to_string()).collect();
+
+        let (fanout_service, viz_receiver) = FanoutService::new(10, hashes);
 
         let pokemon_handler = PokemonFrameHandler::new(fanout_service);
 
