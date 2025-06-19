@@ -1,5 +1,4 @@
 use crate::{error::FrameError, network::frame::Frame};
-use async_trait::async_trait;
 
 #[derive(Debug)]
 pub enum ReadState {
