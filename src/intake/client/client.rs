@@ -74,7 +74,7 @@ impl<R: IFrameReader> Client<R> {
         )
     }
 
-    pub async fn handle_next_message(&mut self) -> Result<bool, AppError> {
+    async fn handle_next_message(&mut self) -> Result<bool, AppError> {
         debug!("Handling next message for {:?}", self.id);
         if !self.is_connected().await {
             return Ok(false);
@@ -92,20 +92,20 @@ impl<R: IFrameReader> Client<R> {
         info!("Running client pipeline for {:?}", self.id);
         let mut shutdown_rx = self.shutdown_tx.subscribe();
         loop {
+            let next_message = self.handle_next_message();
             tokio::select! {
-                biased;
                 _ = shutdown_rx.recv() => {
                     debug!("Client pipeline for {:?} received shutdown", self.id);
                     break;
                 }
-                result = self.handle_next_message() => {
+                result = next_message => {
                     match result {
-                        Ok(should_continue) => {
-                            if !should_continue {
-                                debug!("Client pipeline for {:?} received shutdown", self.id);
-                                break;
-                            }
+                        Ok(true) => {
                             debug!("Client pipeline for {:?} handled message", self.id);
+                        }
+                        Ok(false) => {
+                            debug!("Client {:?} has disconnected", self.id);
+                            break;
                         }
                         Err(e) => {
                             error!("Client pipeline for {:?} handled message: {:?}", self.id, e);
