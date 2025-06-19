@@ -5,6 +5,8 @@ use crate::{
         iframe_reader::{IFrameReader, ReadState},
     },
 };
+use std::future::Future;
+use std::pin::Pin;
 use tokio::io::{AsyncReadExt, BufReader, Interest};
 use tokio::net::TcpStream;
 use tracing::debug;
@@ -27,8 +29,10 @@ impl FramedTcpReader {
 }
 
 impl IFrameReader for FramedTcpReader {
-    fn read(&mut self) -> impl std::future::Future<Output = Result<Frame, FrameError>> + Send {
-        async move {
+    fn read<'a>(
+        &'a mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<Frame, FrameError>> + Send + 'a>> {
+        Box::pin(async move {
             loop {
                 match &self.state {
                     ReadState::WaitingForLength => {
@@ -99,16 +103,16 @@ impl IFrameReader for FramedTcpReader {
                     }
                 }
             }
-        }
+        })
     }
 
-    fn is_connected(&self) -> impl std::future::Future<Output = bool> + Send {
-        async move {
+    fn is_connected<'a>(&'a self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+        Box::pin(async move {
             self.reader
                 .get_ref()
                 .ready(Interest::READABLE)
                 .await
                 .is_ok()
-        }
+        })
     }
 }

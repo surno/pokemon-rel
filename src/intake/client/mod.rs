@@ -3,4 +3,4 @@ pub mod client_manager;
 
 pub use client::Client;
 pub use client::ClientHandle;
-pub use client_manager::ClientManager;
+pub use client_manager::FrameReaderClientManager;

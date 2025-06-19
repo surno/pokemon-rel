@@ -1,6 +1,6 @@
 use crate::error::AppError;
 use crate::pipeline::services::preprocessing::frame_hashing::FrameHashingService;
-use crate::pipeline::types::{EnrichedFrame, GameState, GameStateData, RawFrame};
+use crate::pipeline::types::{EnrichedFrame, GameStateData, RawFrame};
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};

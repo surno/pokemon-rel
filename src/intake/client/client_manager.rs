@@ -1,26 +1,40 @@
-use crate::pipeline::types::SharedFrame;
+use crate::{intake::client::Client, pipeline::types::SharedFrame};
 use std::collections::HashMap;
+use std::fmt::Debug;
+use tokio::sync::RwLock;
 use tokio::sync::broadcast::Receiver;
 use tracing::info;
 use uuid::Uuid;
 
-#[derive(Debug)]
-pub struct ClientManager {
-    pub client_receiver: HashMap<Uuid, Receiver<SharedFrame>>,
-    pub client_frames: HashMap<Uuid, SharedFrame>,
-    pub selected_client: Option<Uuid>,
+pub trait ClientManagerTrait: Send + Sync + Debug {
+    fn get_frames_from_clients(&mut self) -> HashMap<Uuid, Option<SharedFrame>>;
+    fn get_frame_from_client(&mut self, client_id: Uuid) -> Option<SharedFrame>;
+    fn get_selected_client(&self) -> Option<Uuid>;
+    fn set_selected_client(&self, client_id: Uuid);
+    fn add_client(&mut self, client: Box<Client>);
+    fn get_clients(&self) -> Vec<Uuid>;
+    fn remove_client(&mut self, client_id: Uuid);
 }
 
-impl ClientManager {
-    pub fn new() -> Self {
+#[derive(Debug)]
+pub struct FrameReaderClientManager {
+    pub clients: HashMap<Uuid, Box<Client>>,
+    pub client_receiver: HashMap<Uuid, Receiver<SharedFrame>>,
+    pub selected_client: RwLock<Option<Uuid>>,
+}
+
+impl FrameReaderClientManager {
+    pub fn new() -> FrameReaderClientManager {
         Self {
+            clients: HashMap::new(),
             client_receiver: HashMap::new(),
-            client_frames: HashMap::new(),
-            selected_client: None,
+            selected_client: RwLock::new(None),
         }
     }
+}
 
-    pub fn get_frames_from_clients(&mut self) -> HashMap<Uuid, Option<SharedFrame>> {
+impl ClientManagerTrait for FrameReaderClientManager {
+    fn get_frames_from_clients(&mut self) -> HashMap<Uuid, Option<SharedFrame>> {
         let mut frames = HashMap::new();
         for (client_id, receiver) in self.client_receiver.iter_mut() {
             if let Ok(frame) = receiver.try_recv() {
@@ -32,20 +46,42 @@ impl ClientManager {
         frames
     }
 
-    pub fn add_client(&mut self, client_id: Uuid, receiver: Receiver<SharedFrame>) {
-        info!("Adding client {}", client_id);
-        self.client_receiver.insert(client_id, receiver);
-        if self.selected_client.is_none() {
-            info!("No client selected, selecting {}", client_id);
-            self.selected_client = Some(client_id);
+    fn get_frame_from_client(&mut self, client_id: Uuid) -> Option<SharedFrame> {
+        if let Ok(frame) = self.client_receiver.get_mut(&client_id).unwrap().try_recv() {
+            Some(frame)
+        } else {
+            None
         }
     }
 
-    pub fn remove_client(&mut self, client_id: Uuid) {
-        self.client_receiver.remove(&client_id);
-        self.client_frames.remove(&client_id);
-        if self.selected_client == Some(client_id) {
-            self.selected_client = None;
+    fn get_selected_client(&self) -> Option<Uuid> {
+        self.selected_client.blocking_read().clone()
+    }
+
+    fn set_selected_client(&self, client_id: Uuid) {
+        let _ = self.selected_client.blocking_write().insert(client_id);
+    }
+
+    fn add_client(&mut self, client: Box<Client>) {
+        let client_id = client.id();
+        info!("Adding client {}", client_id);
+        self.clients.insert(client_id, client);
+        let mut selected_client = self.selected_client.blocking_write();
+        if *selected_client == None {
+            info!("No client selected, selecting {}", client_id);
+            *selected_client = Some(client_id);
         }
+    }
+
+    fn remove_client(&mut self, client_id: Uuid) {
+        self.client_receiver.remove(&client_id);
+        let mut selected_client = self.selected_client.blocking_write();
+        if *selected_client == Some(client_id) {
+            *selected_client = None;
+        }
+    }
+
+    fn get_clients(&self) -> Vec<Uuid> {
+        self.clients.keys().cloned().collect()
     }
 }

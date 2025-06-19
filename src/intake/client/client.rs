@@ -16,9 +16,9 @@ use tracing::{debug, error, info};
 use uuid::Uuid;
 
 #[derive(Debug)]
-pub struct Client<R> {
-    pub id: Uuid,
-    reader: R,
+pub struct Client {
+    id: Uuid,
+    reader: Box<dyn IFrameReader + Send + Sync>,
     shutdown_tx: Sender<()>,
     frame_tx: mpsc::Sender<Frame>,
 }
@@ -45,8 +45,11 @@ impl ClientHandle {
     }
 }
 
-impl<R: IFrameReader> Client<R> {
-    pub fn new(pokemon_handler: PokemonFrameHandler, reader: R) -> (Self, ClientHandle) {
+impl Client {
+    pub fn new(
+        pokemon_handler: PokemonFrameHandler,
+        reader: Box<dyn IFrameReader + Send + Sync>,
+    ) -> (Box<Client>, ClientHandle) {
         let (shutdown_tx, _) = broadcast::channel(1);
         let id = Uuid::new_v4();
         let (tx, mut rx) = mpsc::channel::<Frame>(1000);
@@ -64,12 +67,12 @@ impl<R: IFrameReader> Client<R> {
             }
         });
         (
-            Self {
+            Box::new(Client {
                 id,
                 reader,
                 shutdown_tx: shutdown_tx.clone(),
                 frame_tx: tx,
-            },
+            }),
             ClientHandle { id, shutdown_tx },
         )
     }

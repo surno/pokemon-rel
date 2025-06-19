@@ -4,8 +4,7 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::app::views::{View, client_view::ClientView};
-use crate::intake::client::client_manager::ClientManager;
-use tracing::debug;
+use crate::intake::client::client_manager::{ClientManagerTrait, FrameReaderClientManager};
 
 struct FpsTracker {
     last_timestamp: SystemTime,
@@ -40,7 +39,7 @@ impl FpsTracker {
 }
 
 pub struct MultiClientApp {
-    client_manager: Arc<RwLock<ClientManager>>,
+    client_manager: Arc<RwLock<FrameReaderClientManager>>,
     fps_tracker: HashMap<Uuid, FpsTracker>,
     show_overview: bool,
     show_frame: bool,
@@ -50,12 +49,12 @@ pub struct MultiClientApp {
 
 impl Default for MultiClientApp {
     fn default() -> Self {
-        Self::new(Arc::new(RwLock::new(ClientManager::new())))
+        Self::new(Arc::new(RwLock::new(FrameReaderClientManager::new())))
     }
 }
 
 impl MultiClientApp {
-    pub fn new(client_manager: Arc<RwLock<ClientManager>>) -> Self {
+    pub fn new(client_manager: Arc<RwLock<FrameReaderClientManager>>) -> Self {
         Self {
             client_manager,
             show_overview: false,
@@ -66,7 +65,7 @@ impl MultiClientApp {
         }
     }
 
-    pub fn start_gui(client_manager: Arc<RwLock<ClientManager>>) {
+    pub fn start_gui(client_manager: Arc<RwLock<FrameReaderClientManager>>) {
         let options = eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
                 .with_inner_size(egui::vec2(1280.0, 720.0))
@@ -84,16 +83,6 @@ impl MultiClientApp {
 
 impl eframe::App for MultiClientApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Upfate frames from all clients
-        {
-            let mut client_manager = self.client_manager.blocking_write();
-            for (client_id, frame) in client_manager.get_frames_from_clients() {
-                if let Some(frame) = frame {
-                    client_manager.client_frames.insert(client_id, frame);
-                }
-            }
-        }
-
         // Main UI
         egui::TopBottomPanel::top("Client Selector")
             .resizable(true)
@@ -103,7 +92,7 @@ impl eframe::App for MultiClientApp {
 
                 ui.checkbox(&mut self.show_overview, "Show Overview");
 
-                let mut selected_client = self.client_manager.blocking_read().selected_client;
+                let mut selected_client = self.client_manager.blocking_read().get_selected_client();
                 let client_ids: Vec<_> = self
                     .client_manager
                     .blocking_read()
@@ -125,7 +114,11 @@ impl eframe::App for MultiClientApp {
                         }
                     });
 
-                self.client_manager.blocking_write().selected_client = selected_client;
+                if let Some(client_id) = selected_client {
+                    self.client_manager
+                        .blocking_write()
+                        .set_selected_client(client_id);
+                }
             });
 
         if self.show_overview {
@@ -134,17 +127,21 @@ impl eframe::App for MultiClientApp {
                 .show(ctx, |ui| {
                     ui.heading("Overview");
                     egui::ScrollArea::vertical().show(ui, |ui| {
-                        for (client_id, frame) in
-                            self.client_manager.blocking_read().client_frames.iter()
-                        {
+                        let mut client_manager = self.client_manager.blocking_write();
+                        for client_id in client_manager.get_clients() {
+                            let Some(frame) = client_manager.get_frame_from_client(client_id)
+                            else {
+                                continue;
+                            };
                             ui.group(|ui| {
                                 let is_selected =
-                                    self.client_manager.blocking_read().selected_client
-                                        == Some(*client_id);
+                                    self.client_manager.blocking_read().get_selected_client()
+                                        == Some(client_id);
                                 let client_name = format!("Client {}", client_id);
                                 if ui.button(&client_name).clicked() {
-                                    self.client_manager.blocking_write().selected_client =
-                                        Some(*client_id);
+                                    self.client_manager
+                                        .blocking_write()
+                                        .set_selected_client(client_id);
                                 }
 
                                 // Mini preview
@@ -175,17 +172,15 @@ impl eframe::App for MultiClientApp {
 
         if self.show_frame {
             egui::CentralPanel::default().show(ctx, |ui| {
-                if let Some(selected_client) = self.client_manager.blocking_read().selected_client {
-                    if let Some(frame) = self
-                        .client_manager
-                        .blocking_read()
-                        .client_frames
-                        .get(&selected_client)
-                    {
+                if let Some(selected_client) =
+                    self.client_manager.blocking_read().get_selected_client()
+                {
+                    let mut client_manager = self.client_manager.blocking_write();
+                    if let Some(frame) = client_manager.get_frame_from_client(selected_client) {
                         ui.heading(format!("Detailed View - Client {}", selected_client));
                         let fps_tracker = self.fps_tracker.get_mut(&selected_client).unwrap();
                         let fps = fps_tracker.get_fps();
-                        let mut client_view = ClientView::new(selected_client, frame.clone(), fps);
+                        let mut client_view = ClientView::new(selected_client, frame, fps);
                         client_view.draw(ui);
                     } else {
                         ui.heading("No frame available... waiting for frame from client");

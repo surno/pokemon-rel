@@ -1,6 +1,9 @@
 use crate::intake::{
-    client::ClientManager,
-    frame::{frame_handler::PokemonFrameHandler, frame_reader::FramedTcpReader},
+    client::client_manager::{ClientManagerTrait, FrameReaderClientManager},
+    frame::{
+        frame_handler::PokemonFrameHandler, frame_reader::FramedTcpReader,
+        iframe_reader::IFrameReader,
+    },
 };
 use crate::pipeline::services::{FanoutService, preprocessing::FrameHashingBuilder};
 use crate::pipeline::types::GameState;
@@ -20,7 +23,7 @@ use tracing::{error, info};
 #[derive(Debug)]
 pub struct NetworkManager {
     client_handles: Arc<RwLock<Vec<ClientHandle>>>,
-    client_manager: Arc<RwLock<ClientManager>>,
+    client_manager: Arc<RwLock<FrameReaderClientManager>>,
     port: u16,
     shutdown_tx: broadcast::Sender<()>,
     listener: Option<TcpListener>,
@@ -46,7 +49,10 @@ impl NetworkHandle {
 }
 
 impl NetworkManager {
-    pub fn new(port: u16, client_manager: Arc<RwLock<ClientManager>>) -> (Self, NetworkHandle) {
+    pub fn new(
+        port: u16,
+        client_manager: Arc<RwLock<FrameReaderClientManager>>,
+    ) -> (Self, NetworkHandle) {
         let (shutdown_tx, _) = broadcast::channel(1);
         let client_handles = Arc::new(RwLock::new(Vec::new()));
         (
@@ -112,12 +118,14 @@ impl NetworkManager {
             )
             .build();
 
-        let (visualization_tx, visualization_rx) = broadcast::channel(10);
+        let (visualization_tx, _visualization_rx) = broadcast::channel(10);
         let fanout_service = FanoutService::new(frame_hashing_service, visualization_tx);
 
         let pokemon_handler = PokemonFrameHandler::new(fanout_service);
 
-        let (client, client_handle) = Client::new(pokemon_handler, FramedTcpReader::new(stream));
+        let reader: Box<dyn IFrameReader + Send + Sync> = Box::new(FramedTcpReader::new(stream));
+
+        let (client, client_handle) = Client::new(pokemon_handler, reader);
         let client_id = client.id();
 
         info!(
@@ -127,37 +135,9 @@ impl NetworkManager {
 
         self.client_handles.write().await.push(client_handle);
 
-        let clients_for_cleanup = self.client_handles.clone();
         let client_manager = self.client_manager.clone();
-
-        tokio::spawn(async move {
-            info!("Starting client pipeline for {:?}", client_id);
-            {
-                let mut client_manager = client_manager.write().await;
-                client_manager.add_client(client_id, visualization_rx);
-            }
-            let mut client = client;
-            let result = client.run_pipeline().await;
-            match result {
-                Ok(_) => {
-                    info!("Client pipeline for {:?} finished successfully", client_id);
-                }
-                Err(e) => {
-                    error!("Error running client pipeline for {:?}: {:?}", client_id, e);
-                }
-            }
-            clients_for_cleanup
-                .write()
-                .await
-                .retain(|c| c.id != client_id);
-
-            {
-                let mut client_manager = client_manager.write().await;
-                client_manager.remove_client(client_id);
-            }
-
-            info!("Client disconnected: {:?} from {:?}", client_id, addr);
-        });
+        let mut client_manager = client_manager.write().await;
+        client_manager.add_client(client);
         info!("Client connected: {:?} from {:?}", client_id, addr);
     }
 
@@ -190,7 +170,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_manager_new() {
-        let client_manager = Arc::new(RwLock::new(ClientManager::new()));
+        let client_manager = Arc::new(RwLock::new(FrameReaderClientManager::new()));
         let (mut manager, handle) = NetworkManager::new(DEFAULT_PORT, client_manager);
         // share the manager with the test
         tokio::spawn(async move {
@@ -202,7 +182,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_manager_start_and_shutdown() {
-        let client_manager = Arc::new(RwLock::new(ClientManager::new()));
+        let client_manager = Arc::new(RwLock::new(FrameReaderClientManager::new()));
         let (mut manager, handle) = NetworkManager::new(DEFAULT_PORT, client_manager);
         tokio::spawn(async move {
             let result = manager.start().await;
@@ -213,7 +193,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_manager_get_client_count() {
-        let client_manager = Arc::new(RwLock::new(ClientManager::new()));
+        let client_manager = Arc::new(RwLock::new(FrameReaderClientManager::new()));
         let (mut manager, handle) = NetworkManager::new(DEFAULT_PORT, client_manager);
         tokio::spawn(async move {
             let result = manager.start().await;
@@ -224,7 +204,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_manager_start_and_shutdown_twice() {
-        let client_manager = Arc::new(RwLock::new(ClientManager::new()));
+        let client_manager = Arc::new(RwLock::new(FrameReaderClientManager::new()));
         let (mut manager, _) = NetworkManager::new(DEFAULT_PORT, client_manager);
         tokio::spawn(async move {
             let _ = manager.start().await;
