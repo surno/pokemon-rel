@@ -19,7 +19,6 @@ pub struct FanoutService {
 
 impl FanoutService {
     pub fn new(
-        visualization_capacity: usize,
         frame_hashing_service: FrameHashingService,
         visualization_tx: broadcast::Sender<SharedFrame>,
     ) -> Self {

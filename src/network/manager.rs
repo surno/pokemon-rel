@@ -113,7 +113,7 @@ impl NetworkManager {
             .build();
 
         let (visualization_tx, visualization_rx) = broadcast::channel(10);
-        let fanout_service = FanoutService::new(10, frame_hashing_service, visualization_tx);
+        let fanout_service = FanoutService::new(frame_hashing_service, visualization_tx);
 
         let pokemon_handler = PokemonFrameHandler::new(fanout_service);
 
