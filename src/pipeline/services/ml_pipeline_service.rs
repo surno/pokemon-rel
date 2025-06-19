@@ -1,4 +1,5 @@
 use crate::error::AppError;
+use crate::pipeline::services::preprocessing::FrameHashingService;
 use crate::pipeline::services::{
     action_service::ActionService, preprocessing::PreprocessingService, rl_service::RLService,
 };
@@ -16,9 +17,9 @@ pub struct MLPipelineService {
 }
 
 impl MLPipelineService {
-    pub fn new(hashes: Vec<String>) -> Self {
+    pub fn new(frame_hashing_service: FrameHashingService) -> Self {
         Self {
-            preprocessing_service: PreprocessingService::new(hashes),
+            preprocessing_service: PreprocessingService::new(frame_hashing_service),
             rl_service: RLService,
             action_service: ActionService,
         }

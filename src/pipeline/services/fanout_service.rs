@@ -1,6 +1,6 @@
 use crate::error::AppError;
 use crate::pipeline::{
-    services::MLPipelineService,
+    services::{MLPipelineService, preprocessing::FrameHashingService},
     types::{GameAction, RawFrame, SharedFrame},
 };
 use std::{
@@ -20,10 +20,10 @@ pub struct FanoutService {
 impl FanoutService {
     pub fn new(
         visualization_capacity: usize,
-        hashes: Vec<String>,
+        frame_hashing_service: FrameHashingService,
     ) -> (Self, broadcast::Receiver<SharedFrame>) {
         let (visualization_tx, visualization_rx) = broadcast::channel(visualization_capacity);
-        let ml_service = MLPipelineService::new(hashes);
+        let ml_service = MLPipelineService::new(frame_hashing_service);
         (
             Self {
                 visualization_tx,

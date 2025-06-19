@@ -1,12 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Copy)]
 pub enum GameState {
-    Intro = 0,
-    InGame = 1,
-    Battle = 2,
-    Menu = 3,
-    Inventory = 4,
+    Unknown = 0,
+    Intro = 1,
+    MainMenu = 2,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

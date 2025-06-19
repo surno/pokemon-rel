@@ -1,11 +1,13 @@
+use crate::network::frame::frame_reader::FramedTcpReader;
 use crate::network::frame_handler::PokemonFrameHandler;
-use crate::pipeline::services::FanoutService;
+use crate::pipeline::services::{FanoutService, preprocessing::FrameHashingBuilder};
+use crate::pipeline::types::GameState;
 use crate::{
     error::AppError, network::client::Client, network::client::ClientHandle,
     network::client::client_manager::ClientManager,
 };
+use std::fs;
 use std::sync::Arc;
-use tokio::fs;
 use tokio::{
     net::{TcpListener, TcpStream},
     sync::{RwLock, broadcast},
@@ -91,18 +93,28 @@ impl NetworkManager {
 
     pub async fn spawn_client_pipeline(&self, stream: TcpStream) {
         let addr = stream.peer_addr().unwrap();
+        let intro_hashes = fs::read_to_string("./assets/intro_hashes.txt").unwrap();
+        let main_menu_hashes = fs::read_to_string("./assets/main_menu_hashes.txt").unwrap();
 
-        let hashes = fs::read_to_string("./assets/intro_hashes.txt")
-            .await
-            .unwrap();
+        let frame_hashing_service = FrameHashingBuilder::new(1000, 0.1)
+            .with_game_state(
+                GameState::Intro,
+                intro_hashes.lines().map(|line| line.to_string()).collect(),
+            )
+            .with_game_state(
+                GameState::MainMenu,
+                main_menu_hashes
+                    .lines()
+                    .map(|line| line.to_string())
+                    .collect(),
+            )
+            .build();
 
-        let hashes = hashes.lines().map(|line| line.to_string()).collect();
-
-        let (fanout_service, viz_receiver) = FanoutService::new(10, hashes);
+        let (fanout_service, viz_receiver) = FanoutService::new(10, frame_hashing_service);
 
         let pokemon_handler = PokemonFrameHandler::new(fanout_service);
 
-        let (client, client_handle) = Client::new(stream, pokemon_handler);
+        let (client, client_handle) = Client::new(pokemon_handler, FramedTcpReader::new(stream));
         let client_id = client.id();
 
         info!(
