@@ -91,7 +91,7 @@ impl NetworkManager {
                 }
                 result = self.listener.as_ref().unwrap().accept() => {
                     if let Ok((stream, _)) = result {
-                        self.spawn_client_pipeline(stream).await;
+                        self.spawn_client_pipeline(stream);
                     } else {
                         error!("Error accepting connection: {:?}", result.err());
                     }
@@ -100,7 +100,7 @@ impl NetworkManager {
         }
     }
 
-    pub async fn spawn_client_pipeline(&self, stream: TcpStream) {
+    pub fn spawn_client_pipeline(&self, stream: TcpStream) {
         let addr = stream.peer_addr().unwrap();
         let intro_hashes = fs::read_to_string("./assets/intro_hashes.txt").unwrap();
         let main_menu_hashes = fs::read_to_string("./assets/main_menu_hashes.txt").unwrap();
@@ -119,10 +119,10 @@ impl NetworkManager {
             )
             .build();
 
-        let (fanout_service, visualization_rx) = FanoutService::new(frame_hashing_service);
+        let fanout_service = FanoutService::new(frame_hashing_service);
 
         let handler: Box<dyn FrameHandler + Send + Sync> =
-            Box::new(PokemonFrameHandler::new(fanout_service));
+            Box::new(PokemonFrameHandler::new(fanout_service.clone()));
 
         let reader: Box<dyn IFrameReader + Send + Sync> = Box::new(FramedTcpReader::new(stream));
 
@@ -134,18 +134,19 @@ impl NetworkManager {
             client_id, addr
         );
 
-        self.client_handles.write().await.push(client_handle);
+        self.client_handles.try_write().unwrap().push(client_handle);
 
         let client_manager = self.client_manager.clone();
-        let mut client_manager = client_manager.write().await;
+        let mut client_manager = client_manager.try_write().unwrap();
         client_manager.add_client(client);
+        client_manager.subscribe_to_client(client_id, fanout_service.subscribe());
         info!("Client connected: {:?} from {:?}", client_id, addr);
     }
 
     pub async fn shutdown(&mut self) {
         info!("Stopping network manager on port {}", self.port);
-        for client_handle in self.client_handles.write().await.drain(..) {
-            let result = client_handle.send_shutdown().await;
+        for client_handle in self.client_handles.try_write().unwrap().drain(..) {
+            let result = client_handle.send_shutdown();
             match result {
                 Ok(_) => info!("Client disconnected: {:?}", client_handle.id),
                 Err(e) => error!("Error stopping client: {:?}", e),

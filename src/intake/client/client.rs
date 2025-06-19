@@ -30,7 +30,7 @@ pub struct ClientHandle {
 }
 
 impl ClientHandle {
-    pub async fn send_shutdown(&self) -> Result<(), AppError> {
+    pub fn send_shutdown(&self) -> Result<(), AppError> {
         match self.shutdown_tx.send(()) {
             Ok(_) => Ok(()),
             Err(e) => {

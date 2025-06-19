@@ -1,6 +1,6 @@
 use crate::error::AppError;
 use crate::intake::frame::frame_handler::FrameHandler;
-use crate::pipeline::services::{FanoutService, fanout_service};
+use crate::pipeline::services::FanoutService;
 use crate::pipeline::types::RawFrame;
 use std::future::Future;
 use std::pin::Pin;
@@ -19,19 +19,17 @@ impl PokemonFrameHandler {
 }
 
 impl FrameHandler for PokemonFrameHandler {
-    fn handle_ping<'a>(
-        &'a self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'a>> {
+    fn handle_ping(&self) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'static>> {
         debug!("Received ping");
         Box::pin(async { Ok(()) })
     }
 
-    fn handle_handshake<'a>(
-        &'a self,
+    fn handle_handshake(
+        &self,
         version: u32,
         name: String,
         program: u16,
-    ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'static>> {
         debug!(
             "Received handshake: version={}, name={}, program={}",
             version, name, program
@@ -39,12 +37,12 @@ impl FrameHandler for PokemonFrameHandler {
         Box::pin(async { Ok(()) })
     }
 
-    fn handle_image<'a>(
-        &'a self,
+    fn handle_image(
+        &self,
         width: u32,
         height: u32,
         pixels: Vec<u8>,
-    ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'static>> {
         debug!("Received image: width={}, height={}", width, height);
         let raw_frame = RawFrame::new(width, height, pixels);
         let mut fanout_service = self.fanout_service.clone();
@@ -55,12 +53,12 @@ impl FrameHandler for PokemonFrameHandler {
         })
     }
 
-    fn handle_image_gd2<'a>(
-        &'a self,
+    fn handle_image_gd2(
+        &self,
         width: u32,
         height: u32,
         gd2_data: Vec<u8>,
-    ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'static>> {
         debug!("Received image GD2: width={}, height={}", width, height);
         let raw_frame = RawFrame::new(width, height, gd2_data);
         let mut fanout_service = self.fanout_service.clone();
@@ -71,9 +69,9 @@ impl FrameHandler for PokemonFrameHandler {
         })
     }
 
-    fn handle_shutdown<'a>(
-        &'a self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'a>> {
+    fn handle_shutdown(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'static>> {
         debug!("Received shutdown");
         Box::pin(async { Ok(()) })
     }

@@ -18,18 +18,17 @@ pub struct FanoutService {
 }
 
 impl FanoutService {
-    pub fn new(
-        frame_hashing_service: FrameHashingService,
-    ) -> (Self, broadcast::Receiver<SharedFrame>) {
+    pub fn new(frame_hashing_service: FrameHashingService) -> Self {
         let ml_service = MLPipelineService::new(frame_hashing_service);
-        let (visualization_tx, visualization_rx) = broadcast::channel(10);
-        (
-            Self {
-                visualization_tx,
-                ml_service,
-            },
-            visualization_rx,
-        )
+        let (visualization_tx, _) = broadcast::channel(10);
+        Self {
+            visualization_tx,
+            ml_service,
+        }
+    }
+
+    pub fn subscribe(&self) -> broadcast::Receiver<SharedFrame> {
+        self.visualization_tx.subscribe()
     }
 }
 

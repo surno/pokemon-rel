@@ -14,6 +14,7 @@ pub trait ClientManagerTrait: Send + Sync + Debug {
     fn add_client(&mut self, client: Box<Client>);
     fn get_clients(&self) -> Vec<Uuid>;
     fn remove_client(&mut self, client_id: Uuid);
+    fn subscribe_to_client(&mut self, client_id: Uuid, receiver: Receiver<SharedFrame>);
 }
 
 #[derive(Debug)]
@@ -66,16 +67,21 @@ impl ClientManagerTrait for FrameReaderClientManager {
         let client_id = client.id();
         info!("Adding client {}", client_id);
         self.clients.insert(client_id, client);
-        let mut selected_client = self.selected_client.blocking_write();
+        let mut selected_client = self.selected_client.try_write().unwrap();
         if *selected_client == None {
             info!("No client selected, selecting {}", client_id);
             *selected_client = Some(client_id);
         }
     }
 
+    fn subscribe_to_client(&mut self, client_id: Uuid, receiver: Receiver<SharedFrame>) {
+        self.client_receiver.insert(client_id, receiver);
+    }
+
     fn remove_client(&mut self, client_id: Uuid) {
         self.client_receiver.remove(&client_id);
-        let mut selected_client = self.selected_client.blocking_write();
+        self.clients.remove(&client_id);
+        let mut selected_client = self.selected_client.try_write().unwrap();
         if *selected_client == Some(client_id) {
             *selected_client = None;
         }
