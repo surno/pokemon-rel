@@ -87,21 +87,10 @@ impl eframe::App for MultiClientApp {
         // Upfate frames from all clients
         {
             let mut client_manager = self.client_manager.blocking_write();
-            let mut new_frames = Vec::new();
-            for (client_id, receiver) in client_manager.client_receiver.iter_mut() {
-                let fps_tracker = self
-                    .fps_tracker
-                    .entry(*client_id)
-                    .or_insert(FpsTracker::new());
-                debug!("Trying to receive frame from client {}", client_id);
-                if let Ok(frame) = receiver.try_recv() {
-                    debug!("Received frame from client {}", client_id);
-                    fps_tracker.add_frame();
-                    new_frames.push((*client_id, frame));
+            for (client_id, frame) in client_manager.get_frames_from_clients() {
+                if let Some(frame) = frame {
+                    client_manager.client_frames.insert(client_id, frame);
                 }
-            }
-            for (client_id, frame) in new_frames {
-                client_manager.client_frames.insert(client_id, frame);
             }
         }
 

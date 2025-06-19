@@ -20,6 +20,18 @@ impl ClientManager {
         }
     }
 
+    pub fn get_frames_from_clients(&mut self) -> HashMap<Uuid, Option<SharedFrame>> {
+        let mut frames = HashMap::new();
+        for (client_id, receiver) in self.client_receiver.iter_mut() {
+            if let Ok(frame) = receiver.try_recv() {
+                frames.insert(*client_id, Some(frame));
+            } else {
+                frames.insert(*client_id, None);
+            }
+        }
+        frames
+    }
+
     pub fn add_client(&mut self, client_id: Uuid, receiver: Receiver<SharedFrame>) {
         info!("Adding client {}", client_id);
         self.client_receiver.insert(client_id, receiver);

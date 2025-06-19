@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct Client<R> {
-    id: Uuid,
+    pub id: Uuid,
     reader: R,
     shutdown_tx: Sender<()>,
     frame_tx: mpsc::Sender<Frame>,
