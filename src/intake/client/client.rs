@@ -2,7 +2,7 @@ use crate::{
     error::AppError,
     intake::frame::{
         Frame,
-        frame_handler::{DelegatingRouter, PokemonFrameHandler},
+        frame_handler::{DelegatingRouter, FrameHandler},
         iframe_reader::IFrameReader,
     },
 };
@@ -47,13 +47,13 @@ impl ClientHandle {
 
 impl Client {
     pub fn new(
-        pokemon_handler: PokemonFrameHandler,
+        handler: Box<dyn FrameHandler + Send + Sync>,
         reader: Box<dyn IFrameReader + Send + Sync>,
     ) -> (Box<Client>, ClientHandle) {
         let (shutdown_tx, _) = broadcast::channel(1);
         let id = Uuid::new_v4();
         let (tx, mut rx) = mpsc::channel::<Frame>(1000);
-        let router = Arc::new(Mutex::new(DelegatingRouter::new(pokemon_handler)));
+        let router = Arc::new(Mutex::new(DelegatingRouter::new(handler)));
         tokio::spawn(async move {
             while let Some(frame) = rx.recv().await {
                 match router.try_lock() {

@@ -2,37 +2,41 @@ use crate::error::AppError;
 use crate::intake::frame::Frame;
 use std::fmt::Debug;
 use std::future::Future;
+use std::pin::Pin;
 
-pub trait FrameHandler: Send + Sync + 'static + Debug {
-    fn handle_ping(&self) -> impl Future<Output = Result<(), AppError>>;
-    fn handle_handshake(
-        &self,
+pub trait FrameHandler: Send + Sync + Debug {
+    fn handle_ping<'a>(&'a self)
+    -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'a>>;
+    fn handle_handshake<'a>(
+        &'a self,
         version: u32,
         name: String,
         program: u16,
-    ) -> impl Future<Output = Result<(), AppError>>;
-    fn handle_image(
-        &mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'a>>;
+    fn handle_image<'a>(
+        &'a self,
         width: u32,
         height: u32,
         pixels: Vec<u8>,
-    ) -> impl Future<Output = Result<(), AppError>>;
-    fn handle_image_gd2(
-        &mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'a>>;
+    fn handle_image_gd2<'a>(
+        &'a self,
         width: u32,
         height: u32,
-        gd2_data: Vec<u8>,
-    ) -> impl Future<Output = Result<(), AppError>>;
-    fn handle_shutdown(&self) -> impl Future<Output = Result<(), AppError>>;
+        pixels: Vec<u8>,
+    ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'a>>;
+    fn handle_shutdown<'a>(
+        &'a self,
+    ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'a>>;
 }
 
 #[derive(Debug)]
-pub struct DelegatingRouter<H: FrameHandler> {
-    handler: H,
+pub struct DelegatingRouter {
+    handler: Box<dyn FrameHandler + Send + Sync>,
 }
 
-impl<H: FrameHandler> DelegatingRouter<H> {
-    pub fn new(handler: H) -> Self {
+impl DelegatingRouter {
+    pub fn new(handler: Box<dyn FrameHandler + Send + Sync>) -> Self {
         Self { handler }
     }
 

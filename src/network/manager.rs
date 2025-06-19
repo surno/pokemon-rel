@@ -1,7 +1,8 @@
 use crate::intake::{
     client::client_manager::{ClientManagerTrait, FrameReaderClientManager},
     frame::{
-        frame_handler::PokemonFrameHandler, frame_reader::FramedTcpReader,
+        frame_handler::{FrameHandler, PokemonFrameHandler},
+        frame_reader::FramedTcpReader,
         iframe_reader::IFrameReader,
     },
 };
@@ -118,14 +119,14 @@ impl NetworkManager {
             )
             .build();
 
-        let (visualization_tx, _visualization_rx) = broadcast::channel(10);
-        let fanout_service = FanoutService::new(frame_hashing_service, visualization_tx);
+        let (fanout_service, visualization_rx) = FanoutService::new(frame_hashing_service);
 
-        let pokemon_handler = PokemonFrameHandler::new(fanout_service);
+        let handler: Box<dyn FrameHandler + Send + Sync> =
+            Box::new(PokemonFrameHandler::new(fanout_service));
 
         let reader: Box<dyn IFrameReader + Send + Sync> = Box::new(FramedTcpReader::new(stream));
 
-        let (client, client_handle) = Client::new(pokemon_handler, reader);
+        let (client, client_handle) = Client::new(handler, reader);
         let client_id = client.id();
 
         info!(
