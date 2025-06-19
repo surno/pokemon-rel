@@ -1,4 +1,4 @@
-use crate::{error::FrameError, network::frame::Frame};
+use crate::{error::FrameError, intake::frame::Frame};
 
 #[derive(Debug)]
 pub enum ReadState {

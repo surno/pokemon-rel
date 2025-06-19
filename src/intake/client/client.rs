@@ -1,9 +1,9 @@
 use crate::{
     error::AppError,
-    network::{
+    intake::frame::{
         Frame,
-        frame::iframe_reader::IFrameReader,
         frame_handler::{DelegatingRouter, PokemonFrameHandler},
+        iframe_reader::IFrameReader,
     },
 };
 use std::sync::Arc;

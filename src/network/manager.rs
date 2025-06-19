@@ -1,10 +1,12 @@
-use crate::network::frame::frame_reader::FramedTcpReader;
-use crate::network::frame_handler::PokemonFrameHandler;
+use crate::intake::{
+    client::ClientManager,
+    frame::{frame_handler::PokemonFrameHandler, frame_reader::FramedTcpReader},
+};
 use crate::pipeline::services::{FanoutService, preprocessing::FrameHashingBuilder};
 use crate::pipeline::types::GameState;
 use crate::{
-    error::AppError, network::client::Client, network::client::ClientHandle,
-    network::client::client_manager::ClientManager,
+    error::AppError,
+    intake::{client::Client, client::ClientHandle},
 };
 use std::fs;
 use std::sync::Arc;

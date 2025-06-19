@@ -1,5 +1,5 @@
 use crate::error::AppError;
-use crate::network::frame_handler::FrameHandler;
+use crate::intake::frame::frame_handler::FrameHandler;
 use crate::pipeline::services::FanoutService;
 use crate::pipeline::types::RawFrame;
 use tower::Service;

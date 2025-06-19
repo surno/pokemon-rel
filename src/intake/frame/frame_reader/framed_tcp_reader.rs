@@ -1,6 +1,6 @@
 use crate::{
     error::FrameError,
-    network::frame::{
+    intake::frame::{
         Frame,
         iframe_reader::{IFrameReader, ReadState},
     },

@@ -1,5 +1,5 @@
 use crate::error::AppError;
-use crate::network::frame::Frame;
+use crate::intake::frame::Frame;
 use std::fmt::Debug;
 use std::future::Future;
 

@@ -4,7 +4,7 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::app::views::{View, client_view::ClientView};
-use crate::network::client::client_manager::ClientManager;
+use crate::intake::client::client_manager::ClientManager;
 use tracing::debug;
 
 struct FpsTracker {

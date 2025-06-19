@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use pokebot_rust::{
     NetworkManager, app::multiclient_app::MultiClientApp,
-    network::client::client_manager::ClientManager,
+    intake::client::client_manager::ClientManager,
 };
 use tracing::Level;
 
