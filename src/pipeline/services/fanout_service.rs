@@ -21,16 +21,13 @@ impl FanoutService {
     pub fn new(
         visualization_capacity: usize,
         frame_hashing_service: FrameHashingService,
-    ) -> (Self, broadcast::Receiver<SharedFrame>) {
-        let (visualization_tx, visualization_rx) = broadcast::channel(visualization_capacity);
+        visualization_tx: broadcast::Sender<SharedFrame>,
+    ) -> Self {
         let ml_service = MLPipelineService::new(frame_hashing_service);
-        (
-            Self {
-                visualization_tx,
-                ml_service,
-            },
-            visualization_rx,
-        )
+        Self {
+            visualization_tx,
+            ml_service,
+        }
     }
 }
 

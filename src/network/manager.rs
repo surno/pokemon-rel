@@ -112,7 +112,8 @@ impl NetworkManager {
             )
             .build();
 
-        let (fanout_service, viz_receiver) = FanoutService::new(10, frame_hashing_service);
+        let (visualization_tx, visualization_rx) = broadcast::channel(10);
+        let fanout_service = FanoutService::new(10, frame_hashing_service, visualization_tx);
 
         let pokemon_handler = PokemonFrameHandler::new(fanout_service);
 
@@ -133,7 +134,7 @@ impl NetworkManager {
             info!("Starting client pipeline for {:?}", client_id);
             {
                 let mut client_manager = client_manager.write().await;
-                client_manager.add_client(client_id, viz_receiver);
+                client_manager.add_client(client_id, visualization_rx);
             }
             let mut client = client;
             let result = client.run_pipeline().await;
