@@ -4,12 +4,19 @@ use crate::pipeline::types::{GameAction, RawFrame};
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use tokio::net::TcpStream;
 use tower::Service;
 
 pub struct MLPipelineService {}
 
-impl Service<RawFrame> for MLPipelineService {
-    type Response = GameAction;
+impl MLPipelineService {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl Service<TcpStream> for MLPipelineService {
+    type Response = RawFrame;
     type Error = AppError;
     type Future =
         Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
@@ -18,7 +25,7 @@ impl Service<RawFrame> for MLPipelineService {
         return Poll::Ready(Ok(()));
     }
 
-    fn call(&mut self, request: RawFrame) -> Self::Future {
-        todo!()
+    fn call(&mut self, request: TcpStream) -> Self::Future {
+        Box::pin(async move { todo!() })
     }
 }

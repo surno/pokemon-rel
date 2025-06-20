@@ -1,3 +1,3 @@
-pub mod manager;
+pub mod server;
 
-pub use manager::NetworkManager;
+pub use server::Server;

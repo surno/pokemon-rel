@@ -9,4 +9,4 @@ pub use app::multiclient_app::MultiClientApp;
 pub use intake::client::client_manager::FrameReaderClientManager;
 pub use intake::frame::Frame;
 pub use intake::frame::frame_handler::PokemonFrameHandler;
-pub use network::manager::NetworkManager;
+pub use network::server::Server;

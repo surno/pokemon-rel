@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use pokebot_rust::{
-    NetworkManager, app::multiclient_app::MultiClientApp,
+    Server, app::multiclient_app::MultiClientApp,
     intake::client::client_manager::FrameReaderClientManager,
 };
 use tracing::Level;
@@ -18,8 +18,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            let (mut manager, _) = NetworkManager::new(3344, network_client_manager);
-            manager.start().await.unwrap();
+            let mut server = Server::new(3344, network_client_manager);
+            server.start().await.unwrap();
         });
     });
 

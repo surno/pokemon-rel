@@ -41,13 +41,6 @@ impl Service<RawFrame> for FanoutService {
     }
 
     fn call(&mut self, request: RawFrame) -> Self::Future {
-        let shared_frame = EnrichedFrame::from(request.clone());
-
-        debug!("Sending frame to visualization");
-        let _ = self.visualization_tx.send(shared_frame.clone());
-
-        let ml_future = self.ml_service.call(request.clone());
-
-        Box::pin(ml_future)
+        todo!()
     }
 }
