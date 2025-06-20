@@ -1,5 +1,5 @@
 use crate::error::AppError;
-use crate::pipeline::types::{EnrichedFrame, GameStateData, RawFrame};
+use crate::pipeline::types::{EnrichedFrame, RawFrame};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;

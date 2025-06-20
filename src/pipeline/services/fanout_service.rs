@@ -9,7 +9,6 @@ use std::{
 };
 use tokio::sync::broadcast;
 use tower::Service;
-use tracing::debug;
 
 pub struct FanoutService {
     visualization_tx: broadcast::Sender<EnrichedFrame>,
@@ -40,7 +39,7 @@ impl Service<RawFrame> for FanoutService {
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, request: RawFrame) -> Self::Future {
+    fn call(&mut self, _: RawFrame) -> Self::Future {
         todo!()
     }
 }

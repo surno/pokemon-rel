@@ -1,6 +1,5 @@
 use crate::error::AppError;
-use crate::pipeline::EnrichedFrame;
-use crate::pipeline::types::{GameAction, RawFrame};
+use crate::pipeline::types::RawFrame;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -25,7 +24,7 @@ impl Service<TcpStream> for MLPipelineService {
         return Poll::Ready(Ok(()));
     }
 
-    fn call(&mut self, request: TcpStream) -> Self::Future {
+    fn call(&mut self, _: TcpStream) -> Self::Future {
         Box::pin(async move { todo!() })
     }
 }

@@ -1,6 +1,5 @@
 use crate::error::AppError;
 use crate::intake::frame::Frame;
-use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
 

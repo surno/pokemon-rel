@@ -13,18 +13,6 @@ struct FpsTracker {
 }
 
 impl FpsTracker {
-    pub fn new() -> Self {
-        Self {
-            last_timestamp: SystemTime::now(),
-            frame_count: 0,
-            last_fps: 0.0,
-        }
-    }
-
-    pub fn add_frame(&mut self) {
-        self.frame_count += 1;
-    }
-
     pub fn get_fps(&mut self) -> f32 {
         let now = SystemTime::now();
         let elapsed_time = now.duration_since(self.last_timestamp).unwrap();

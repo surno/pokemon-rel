@@ -1,10 +1,9 @@
 use crate::error::AppError;
-use crate::intake::frame::frame_handler::FrameHandler;
+use crate::intake::frame::handler::FrameHandler;
 use crate::pipeline::services::FanoutService;
 use crate::pipeline::types::RawFrame;
 use std::future::Future;
 use std::pin::Pin;
-use tower::Service;
 use tracing::debug;
 
 pub struct PokemonFrameHandler {
@@ -43,7 +42,7 @@ impl FrameHandler for PokemonFrameHandler {
         pixels: Vec<u8>,
     ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'static>> {
         debug!("Received image: width={}, height={}", width, height);
-        let raw_frame = RawFrame::new(width, height, pixels);
+        let _raw_frame = RawFrame::new(width, height, pixels);
         Box::pin(async move {
             // TODO: do something with the action
             Ok(())
@@ -57,7 +56,7 @@ impl FrameHandler for PokemonFrameHandler {
         gd2_data: Vec<u8>,
     ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'static>> {
         debug!("Received image GD2: width={}, height={}", width, height);
-        let raw_frame = RawFrame::new(width, height, gd2_data);
+        let _ = RawFrame::new(width, height, gd2_data);
         Box::pin(async move { Ok(()) })
     }
 

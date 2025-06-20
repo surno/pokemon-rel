@@ -2,16 +2,14 @@ use crate::intake::client::client_manager::FrameReaderClientManager;
 use crate::pipeline::services::MLPipelineService;
 use crate::{error::AppError, intake::client::ClientHandle};
 use core::net::SocketAddr;
-use futures::future::Shared;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::{
     net::{TcpListener, TcpStream},
     sync::RwLock,
 };
-use tower::Service;
 
-use tower::{ServiceBuilder, ServiceExt};
+use tower::ServiceBuilder;
 use tracing::{debug, error, info};
 
 pub struct Server {
@@ -49,16 +47,14 @@ impl Server {
         }
     }
 
-    async fn handle_client(&self, stream: TcpStream, peer: SocketAddr) -> Result<(), AppError> {
+    async fn handle_client(&self, _: TcpStream, peer: SocketAddr) -> Result<(), AppError> {
         debug!("New client attempting to connect: {:?}", peer);
-        let mut service = ServiceBuilder::new()
+        let mut _service = ServiceBuilder::new()
             .concurrency_limit(10)
             .timeout(Duration::from_secs(30))
             .service(MLPipelineService::new());
 
-        tokio::spawn(async move {
-            let result = service.call(stream);
-        });
+        tokio::spawn(async move { todo!() });
         Ok(())
     }
 }

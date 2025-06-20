@@ -1,12 +1,11 @@
 use crate::{intake::client::Client, pipeline::types::EnrichedFrame};
 use std::collections::HashMap;
-use std::fmt::Debug;
 use tokio::sync::RwLock;
 use tokio::sync::broadcast::Receiver;
 use tracing::info;
 use uuid::Uuid;
 
-pub trait ClientManagerTrait: Send + Sync + Debug {
+pub trait ClientManagerTrait: Send + Sync {
     fn get_frames_from_clients(&mut self) -> HashMap<Uuid, Option<EnrichedFrame>>;
     fn get_frame_from_client(&mut self, client_id: Uuid) -> Option<EnrichedFrame>;
     fn get_selected_client(&self) -> Option<Uuid>;
@@ -17,7 +16,6 @@ pub trait ClientManagerTrait: Send + Sync + Debug {
     fn subscribe_to_client(&mut self, client_id: Uuid, receiver: Receiver<EnrichedFrame>);
 }
 
-#[derive(Debug)]
 pub struct FrameReaderClientManager {
     pub clients: HashMap<Uuid, Box<Client>>,
     pub client_receiver: HashMap<Uuid, Receiver<EnrichedFrame>>,

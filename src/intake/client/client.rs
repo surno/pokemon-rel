@@ -2,8 +2,8 @@ use crate::{
     error::AppError,
     intake::frame::{
         Frame,
-        frame_handler::{DelegatingRouter, FrameHandler},
-        iframe_reader::IFrameReader,
+        handler::{DelegatingRouter, FrameHandler},
+        reader::FrameReader,
     },
 };
 use std::sync::Arc;
@@ -15,10 +15,9 @@ use tokio::sync::{
 use tracing::{debug, error, info};
 use uuid::Uuid;
 
-#[derive(Debug)]
 pub struct Client {
     id: Uuid,
-    reader: Box<dyn IFrameReader + Send + Sync>,
+    reader: Box<dyn FrameReader + Send + Sync>,
     shutdown_tx: Sender<()>,
     frame_tx: mpsc::Sender<Frame>,
 }
@@ -48,7 +47,7 @@ impl ClientHandle {
 impl Client {
     pub fn new(
         handler: Box<dyn FrameHandler + Send + Sync>,
-        reader: Box<dyn IFrameReader + Send + Sync>,
+        reader: Box<dyn FrameReader + Send + Sync>,
     ) -> (Box<Client>, ClientHandle) {
         let (shutdown_tx, _) = broadcast::channel(1);
         let id = Uuid::new_v4();
