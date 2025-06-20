@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use tracing::error;
 
 use crate::error::FrameError;
@@ -23,10 +24,10 @@ pub enum Frame {
     Shutdown,
 }
 
-impl TryFrom<&[u8]> for Frame {
+impl TryFrom<Bytes> for Frame {
     type Error = FrameError;
 
-    fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
+    fn try_from(slice: Bytes) -> Result<Self, Self::Error> {
         if slice.len() < 5 {
             return Err(FrameError::InvalidFrameLength(5, slice.len()));
         }
@@ -117,18 +118,20 @@ impl TryFrom<&[u8]> for Frame {
 mod tests {
     use std::vec;
 
+    use bytes::BytesMut;
+
     use super::*;
 
     #[test]
     fn test_frame_try_from_ping() {
-        let data: [u8; 10] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        let frame = Frame::try_from(&data[..]).unwrap();
+        let data: Bytes = Bytes::from_static(&[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let frame = Frame::try_from(data).unwrap();
         assert!(matches!(frame, Frame::Ping));
     }
     #[test]
     fn test_frame_try_from_handshake() {
-        let data: [u8; 14] = [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        let frame = Frame::try_from(&data[..]);
+        let data: Bytes = Bytes::from_static(&[1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let frame = Frame::try_from(data);
         match frame {
             Ok(frame) => {
                 if let Frame::Handshake {
@@ -152,8 +155,8 @@ mod tests {
 
     #[test]
     fn test_frame_try_from_image() {
-        let data: [u8; 9] = [2, 0, 0, 0, 0, 0, 0, 0, 0];
-        let frame = Frame::try_from(&data[..]).unwrap();
+        let data: Bytes = Bytes::from_static(&[2, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let frame = Frame::try_from(data).unwrap();
         let _expected_pixels: Vec<u8> = vec![];
         assert!(matches!(
             frame,
@@ -167,38 +170,38 @@ mod tests {
 
     #[test]
     fn test_frame_try_from_shutdown() {
-        let data: [u8; 10] = [3, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        let frame = Frame::try_from(&data[..]).unwrap();
+        let data: Bytes = Bytes::from_static(&[3, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let frame = Frame::try_from(data).unwrap();
         assert!(matches!(frame, Frame::Shutdown));
     }
 
     #[test]
     fn test_frame_try_from_invalid_tag() {
-        let data: [u8; 10] = [4, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        let frame = Frame::try_from(&data[..]);
+        let data: Bytes = Bytes::from_static(&[4, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let frame = Frame::try_from(data);
         assert!(frame.is_err());
     }
 
     #[test]
     fn test_frame_try_from_invalid_length() {
-        let data: [u8; 4] = [1, 0, 0, 0];
-        let frame = Frame::try_from(&data[..]);
+        let data: Bytes = Bytes::from_static(&[1, 0, 0, 0]);
+        let frame = Frame::try_from(data);
         assert!(frame.is_err());
     }
 
     #[test]
     fn test_frame_try_from_invalid_pixels() {
         // Test case: 1x1 image should need 3 bytes (RGB), but we only provide 1 byte
-        let data: [u8; 10] = [2, 1, 0, 0, 0, 1, 0, 0, 0, 255]; // 1x1 image with 1 byte (should need 3)
-        let frame = Frame::try_from(&data[..]);
+        let data: Bytes = Bytes::from_static(&[2, 1, 0, 0, 0, 1, 0, 0, 0, 255]); // 1x1 image with 1 byte (should need 3)
+        let frame = Frame::try_from(data);
         assert!(frame.is_err());
     }
 
     #[test]
     fn test_frame_try_from_valid_rgb_pixels() {
         // Test case: 1x1 RGB image with correct 3 bytes
-        let data: [u8; 12] = [2, 1, 0, 0, 0, 1, 0, 0, 0, 255, 128, 64]; // 1x1 image with RGB
-        let frame = Frame::try_from(&data[..]).unwrap();
+        let data: Bytes = Bytes::from_static(&[2, 1, 0, 0, 0, 1, 0, 0, 0, 255, 128, 64]); // 1x1 image with RGB
+        let frame = Frame::try_from(data).unwrap();
         let _expected_pixels: Vec<u8> = vec![255, 128, 64];
         assert!(matches!(
             frame,
@@ -213,9 +216,10 @@ mod tests {
     #[test]
     fn test_frame_try_from_gd2_image() {
         // Test case: GD2 format with mock GD2 header
-        let mut data = vec![4, 1, 0, 0, 0, 1, 0, 0, 0]; // tag=4, width=1, height=1
+        let mut data = BytesMut::new(); // tag=4, width=1, height=1
+        data.extend_from_slice(&[4, 1, 0, 0, 0, 1, 0, 0, 0]);
         data.extend_from_slice(b"GD2\001mock_gd2_data"); // Mock GD2 data
-        let frame = Frame::try_from(&data[..]).unwrap();
+        let frame = Frame::try_from(data.freeze()).unwrap();
         let _expected_gd2_data: Vec<u8> = b"GD2\001mock_gd2_data".to_vec();
         assert!(matches!(
             frame,

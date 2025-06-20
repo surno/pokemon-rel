@@ -5,6 +5,7 @@ use crate::{
         reader::{FrameReader, frame_reader::ReadState},
     },
 };
+use bytes::BytesMut;
 use std::future::Future;
 use std::pin::Pin;
 use tokio::io::{AsyncReadExt, BufReader};
@@ -44,10 +45,10 @@ impl FramedTcpReader {
     }
 
     async fn read_frame_data(&mut self, expected_length: u32) -> Result<Frame, FrameError> {
-        let mut frame_buffer = vec![0u8; expected_length as usize];
+        let mut bytes = BytesMut::with_capacity(expected_length as usize);
         let bytes_read = self
             .reader
-            .read_exact(&mut frame_buffer)
+            .read_exact(&mut bytes)
             .await
             .map_err(FrameError::Read)?;
 
@@ -58,7 +59,7 @@ impl FramedTcpReader {
             ));
         }
 
-        Ok(Frame::try_from(frame_buffer.as_slice())?)
+        Ok(Frame::try_from(bytes.freeze())?)
     }
 }
 
