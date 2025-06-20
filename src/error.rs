@@ -44,8 +44,8 @@ pub enum AppError {
 pub enum FrameError {
     #[error("Failed to read frame: {0}")]
     Read(std::io::Error),
-    #[error("Invalid frame length, expected at least 5 bytes, got {0}")]
-    InvalidFrameLength(usize),
+    #[error("Invalid frame length, expected {0} bytes, got {1}")]
+    InvalidFrameLength(usize, usize),
     #[error("Invalid frame tag, got {0}")]
     InvalidFrameTag(u8),
     #[error("Invalid program from slice: {0}")]

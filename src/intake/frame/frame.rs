@@ -2,7 +2,7 @@ use tracing::error;
 
 use crate::error::FrameError;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(PartialEq)]
 pub enum Frame {
     Ping,
     Handshake {
@@ -28,7 +28,7 @@ impl TryFrom<&[u8]> for Frame {
 
     fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
         if slice.len() < 5 {
-            return Err(FrameError::InvalidFrameLength(slice.len()));
+            return Err(FrameError::InvalidFrameLength(5, slice.len()));
         }
         let tag = slice[0];
         match tag {
@@ -115,29 +115,38 @@ impl TryFrom<&[u8]> for Frame {
 
 #[cfg(test)]
 mod tests {
+    use std::vec;
+
     use super::*;
 
     #[test]
     fn test_frame_try_from_ping() {
         let data: [u8; 10] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         let frame = Frame::try_from(&data[..]).unwrap();
-        assert_eq!(frame, Frame::Ping);
+        assert!(matches!(frame, Frame::Ping));
     }
     #[test]
     fn test_frame_try_from_handshake() {
         let data: [u8; 14] = [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         let frame = Frame::try_from(&data[..]);
-        if let Ok(frame) = frame {
-            assert_eq!(
-                frame,
-                Frame::Handshake {
-                    version: 1,
-                    name: String::new(),
-                    program: 0,
+        match frame {
+            Ok(frame) => {
+                if let Frame::Handshake {
+                    version,
+                    name,
+                    program,
+                } = frame
+                {
+                    assert_eq!(version, 1);
+                    assert_eq!(name, String::new());
+                    assert_eq!(program, 0);
+                } else {
+                    panic!("Expected Handshake frame");
                 }
-            );
-        } else {
-            panic!("Error: {:?}", frame.unwrap_err().to_string());
+            }
+            Err(e) => {
+                panic!("Error: {:?}", e);
+            }
         }
     }
 
@@ -145,21 +154,22 @@ mod tests {
     fn test_frame_try_from_image() {
         let data: [u8; 9] = [2, 0, 0, 0, 0, 0, 0, 0, 0];
         let frame = Frame::try_from(&data[..]).unwrap();
-        assert_eq!(
+        let _expected_pixels: Vec<u8> = vec![];
+        assert!(matches!(
             frame,
             Frame::Image {
                 width: 0,
                 height: 0,
-                pixels: vec![],
+                pixels: _expected_pixels,
             }
-        );
+        ));
     }
 
     #[test]
     fn test_frame_try_from_shutdown() {
         let data: [u8; 10] = [3, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         let frame = Frame::try_from(&data[..]).unwrap();
-        assert_eq!(frame, Frame::Shutdown);
+        assert!(matches!(frame, Frame::Shutdown));
     }
 
     #[test]
@@ -189,14 +199,15 @@ mod tests {
         // Test case: 1x1 RGB image with correct 3 bytes
         let data: [u8; 12] = [2, 1, 0, 0, 0, 1, 0, 0, 0, 255, 128, 64]; // 1x1 image with RGB
         let frame = Frame::try_from(&data[..]).unwrap();
-        assert_eq!(
+        let _expected_pixels: Vec<u8> = vec![255, 128, 64];
+        assert!(matches!(
             frame,
             Frame::Image {
                 width: 1,
                 height: 1,
-                pixels: vec![255, 128, 64],
+                pixels: _expected_pixels,
             }
-        );
+        ));
     }
 
     #[test]
@@ -205,13 +216,14 @@ mod tests {
         let mut data = vec![4, 1, 0, 0, 0, 1, 0, 0, 0]; // tag=4, width=1, height=1
         data.extend_from_slice(b"GD2\001mock_gd2_data"); // Mock GD2 data
         let frame = Frame::try_from(&data[..]).unwrap();
-        assert_eq!(
+        let _expected_gd2_data: Vec<u8> = b"GD2\001mock_gd2_data".to_vec();
+        assert!(matches!(
             frame,
             Frame::ImageGD2 {
                 width: 1,
                 height: 1,
-                gd2_data: b"GD2\001mock_gd2_data".to_vec(),
+                gd2_data: _expected_gd2_data,
             }
-        );
+        ));
     }
 }

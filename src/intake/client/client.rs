@@ -6,9 +6,7 @@ use crate::{
         reader::FrameReader,
     },
 };
-use std::sync::Arc;
 use tokio::sync::{
-    Mutex,
     broadcast::{self, Sender},
     mpsc,
 };
@@ -20,6 +18,7 @@ pub struct Client {
     reader: Box<dyn FrameReader + Send + Sync>,
     shutdown_tx: Sender<()>,
     frame_tx: mpsc::Sender<Frame>,
+    router: DelegatingRouter,
 }
 
 #[derive(Debug)]
@@ -51,26 +50,15 @@ impl Client {
     ) -> (Box<Client>, ClientHandle) {
         let (shutdown_tx, _) = broadcast::channel(1);
         let id = Uuid::new_v4();
-        let (tx, mut rx) = mpsc::channel::<Frame>(1000);
-        let router = Arc::new(Mutex::new(DelegatingRouter::new(handler)));
-        tokio::spawn(async move {
-            while let Some(frame) = rx.recv().await {
-                match router.try_lock() {
-                    Ok(mut router) => {
-                        let _ = router.route(&frame).await;
-                    }
-                    Err(e) => {
-                        error!("Error locking router for {:?}: {:?}", id, e);
-                    }
-                }
-            }
-        });
+        let (tx, _) = mpsc::channel::<Frame>(1000);
+        let router = DelegatingRouter::new(handler);
         (
             Box::new(Client {
                 id,
                 reader,
                 shutdown_tx: shutdown_tx.clone(),
                 frame_tx: tx,
+                router: router,
             }),
             ClientHandle { id, shutdown_tx },
         )
@@ -78,15 +66,8 @@ impl Client {
 
     async fn handle_next_message(&mut self) -> Result<bool, AppError> {
         debug!("Handling next message for {:?}", self.id);
-        if !self.is_connected().await {
-            return Ok(false);
-        }
-
         let frame = self.reader.read().await?;
-        self.frame_tx.send(frame).await.map_err(|e| {
-            error!("Error sending frame to client {:?}: {:?}", self.id, e);
-            AppError::Client(e.to_string())
-        })?;
+        self.router.route(frame).await?;
         Ok(true)
     }
 
@@ -123,10 +104,5 @@ impl Client {
 
     pub fn id(&self) -> Uuid {
         self.id
-    }
-
-    pub async fn is_connected(&self) -> bool {
-        debug!("Checking if client {:?} is connected", self.id);
-        self.reader.is_connected().await
     }
 }

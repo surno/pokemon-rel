@@ -7,8 +7,10 @@ use crate::{
 };
 use std::future::Future;
 use std::pin::Pin;
-use tokio::io::{AsyncReadExt, BufReader, Interest};
+use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::TcpStream;
+
+const FRAME_LENGTH_BYTES: usize = 4;
 
 pub struct FramedTcpReader {
     reader: BufReader<TcpStream>,
@@ -24,15 +26,18 @@ impl FramedTcpReader {
     pub async fn read_frame_length(&mut self) -> Result<u32, FrameError> {
         // [length][tag][data]
         // [length] is 4 bytes
-        let mut length_buffer = [0u8; 4];
+        let mut length_buffer = [0u8; FRAME_LENGTH_BYTES];
         let bytes_read: usize = self
             .reader
             .read_exact(&mut length_buffer)
             .await
             .map_err(FrameError::Read)?;
 
-        if bytes_read != 4 {
-            return Err(FrameError::InvalidFrameLength(bytes_read));
+        if bytes_read != FRAME_LENGTH_BYTES {
+            return Err(FrameError::InvalidFrameLength(
+                FRAME_LENGTH_BYTES,
+                bytes_read,
+            ));
         }
 
         Ok(u32::from_le_bytes(length_buffer))
@@ -40,10 +45,18 @@ impl FramedTcpReader {
 
     async fn read_frame_data(&mut self, expected_length: u32) -> Result<Frame, FrameError> {
         let mut frame_buffer = vec![0u8; expected_length as usize];
-        self.reader
+        let bytes_read = self
+            .reader
             .read_exact(&mut frame_buffer)
             .await
             .map_err(FrameError::Read)?;
+
+        if bytes_read != expected_length as usize {
+            return Err(FrameError::InvalidFrameLength(
+                expected_length as usize,
+                bytes_read,
+            ));
+        }
 
         Ok(Frame::try_from(frame_buffer.as_slice())?)
     }
@@ -67,16 +80,6 @@ impl FrameReader for FramedTcpReader {
                     }
                 }
             }
-        })
-    }
-
-    fn is_connected<'a>(&'a self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
-        Box::pin(async move {
-            self.reader
-                .get_ref()
-                .ready(Interest::READABLE)
-                .await
-                .is_ok()
         })
     }
 }

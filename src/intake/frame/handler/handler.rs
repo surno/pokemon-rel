@@ -38,7 +38,7 @@ impl DelegatingRouter {
         Self { handler }
     }
 
-    pub async fn route(&mut self, frame: &Frame) -> Result<(), AppError> {
+    pub async fn route(&mut self, frame: Frame) -> Result<(), AppError> {
         match frame {
             Frame::Ping => self.handler.handle_ping().await,
             Frame::Handshake {
@@ -47,7 +47,7 @@ impl DelegatingRouter {
                 program,
             } => {
                 self.handler
-                    .handle_handshake(*version, name.clone(), *program)
+                    .handle_handshake(version, name.clone(), program)
                     .await
             }
             Frame::Image {
@@ -56,7 +56,7 @@ impl DelegatingRouter {
                 pixels,
             } => {
                 self.handler
-                    .handle_image(*width, *height, pixels.clone())
+                    .handle_image(width, height, pixels.clone())
                     .await
             }
             Frame::ImageGD2 {
@@ -65,7 +65,7 @@ impl DelegatingRouter {
                 gd2_data,
             } => {
                 self.handler
-                    .handle_image_gd2(*width, *height, gd2_data.clone())
+                    .handle_image_gd2(width, height, gd2_data.clone())
                     .await
             }
             Frame::Shutdown => self.handler.handle_shutdown().await,
