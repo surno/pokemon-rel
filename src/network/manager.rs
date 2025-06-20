@@ -21,7 +21,6 @@ use tokio::{
 
 use tracing::{error, info};
 
-#[derive(Debug)]
 pub struct NetworkManager {
     client_handles: Arc<RwLock<Vec<ClientHandle>>>,
     client_manager: Arc<RwLock<FrameReaderClientManager>>,
@@ -30,7 +29,6 @@ pub struct NetworkManager {
     listener: Option<TcpListener>,
 }
 
-#[derive(Debug)]
 pub struct NetworkHandle {
     shutdown_tx: broadcast::Sender<()>,
     client_handles: Arc<RwLock<Vec<ClientHandle>>>,
@@ -86,7 +84,7 @@ impl NetworkManager {
             tokio::select! {
                 _ = shutdown_rx.recv() => {
                     info!("Shutting down network manager.");
-                    self.shutdown().await;
+                    self.shutdown();
                     return Ok(());
                 }
                 result = self.listener.as_ref().unwrap().accept() => {
@@ -122,7 +120,7 @@ impl NetworkManager {
         let fanout_service = FanoutService::new(frame_hashing_service);
 
         let handler: Box<dyn FrameHandler + Send + Sync> =
-            Box::new(PokemonFrameHandler::new(fanout_service.clone()));
+            Box::new(PokemonFrameHandler::new(fanout_service));
 
         let reader: Box<dyn IFrameReader + Send + Sync> = Box::new(FramedTcpReader::new(stream));
 
@@ -139,11 +137,10 @@ impl NetworkManager {
         let client_manager = self.client_manager.clone();
         let mut client_manager = client_manager.try_write().unwrap();
         client_manager.add_client(client);
-        client_manager.subscribe_to_client(client_id, fanout_service.subscribe());
         info!("Client connected: {:?} from {:?}", client_id, addr);
     }
 
-    pub async fn shutdown(&mut self) {
+    pub fn shutdown(&mut self) {
         info!("Stopping network manager on port {}", self.port);
         for client_handle in self.client_handles.try_write().unwrap().drain(..) {
             let result = client_handle.send_shutdown();
@@ -176,7 +173,7 @@ mod tests {
         let (mut manager, handle) = NetworkManager::new(DEFAULT_PORT, client_manager);
         // share the manager with the test
         tokio::spawn(async move {
-            let _ = manager.start().await;
+            let _ = manager.start();
         });
         tokio::time::sleep(Duration::from_secs(1)).await;
         assert!(handle.shutdown().await.is_ok());
@@ -187,7 +184,7 @@ mod tests {
         let client_manager = Arc::new(RwLock::new(FrameReaderClientManager::new()));
         let (mut manager, handle) = NetworkManager::new(DEFAULT_PORT, client_manager);
         tokio::spawn(async move {
-            let result = manager.start().await;
+            let result = manager.start();
         });
         tokio::time::sleep(Duration::from_secs(1)).await;
         assert!(handle.shutdown().await.is_ok());
@@ -198,7 +195,7 @@ mod tests {
         let client_manager = Arc::new(RwLock::new(FrameReaderClientManager::new()));
         let (mut manager, handle) = NetworkManager::new(DEFAULT_PORT, client_manager);
         tokio::spawn(async move {
-            let result = manager.start().await;
+            let result = manager.start();
         });
         tokio::time::sleep(Duration::from_secs(1)).await;
         assert_eq!(handle.get_client_count().await, 0);
@@ -209,7 +206,7 @@ mod tests {
         let client_manager = Arc::new(RwLock::new(FrameReaderClientManager::new()));
         let (mut manager, _) = NetworkManager::new(DEFAULT_PORT, client_manager);
         tokio::spawn(async move {
-            let _ = manager.start().await;
+            let _ = manager.start();
         });
     }
 }

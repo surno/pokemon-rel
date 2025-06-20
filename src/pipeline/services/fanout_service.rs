@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use crate::pipeline::{
     services::{MLPipelineService, preprocessing::FrameHashingService},
-    types::{GameAction, RawFrame, SharedFrame},
+    types::{EnrichedFrame, GameAction, RawFrame},
 };
 use std::{
     pin::Pin,
@@ -11,15 +11,14 @@ use tokio::sync::broadcast;
 use tower::Service;
 use tracing::debug;
 
-#[derive(Debug, Clone)]
 pub struct FanoutService {
-    visualization_tx: broadcast::Sender<SharedFrame>,
+    visualization_tx: broadcast::Sender<EnrichedFrame>,
     ml_service: MLPipelineService,
 }
 
 impl FanoutService {
-    pub fn new(frame_hashing_service: FrameHashingService) -> Self {
-        let ml_service = MLPipelineService::new(frame_hashing_service);
+    pub fn new(_frame_hashing_service: FrameHashingService) -> Self {
+        let ml_service = MLPipelineService {};
         let (visualization_tx, _) = broadcast::channel(10);
         Self {
             visualization_tx,
@@ -27,7 +26,7 @@ impl FanoutService {
         }
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<SharedFrame> {
+    pub fn subscribe(&self) -> broadcast::Receiver<EnrichedFrame> {
         self.visualization_tx.subscribe()
     }
 }
@@ -42,7 +41,7 @@ impl Service<RawFrame> for FanoutService {
     }
 
     fn call(&mut self, request: RawFrame) -> Self::Future {
-        let shared_frame = SharedFrame::from(request.clone());
+        let shared_frame = EnrichedFrame::from(request.clone());
 
         debug!("Sending frame to visualization");
         let _ = self.visualization_tx.send(shared_frame.clone());

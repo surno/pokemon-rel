@@ -1,5 +1,5 @@
 pub mod frame_hashing;
-pub mod preprocessing;
+pub mod frame_translation;
 
 pub use frame_hashing::*;
-pub use preprocessing::*;
+pub use frame_translation::*;

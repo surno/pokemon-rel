@@ -1,8 +1,17 @@
-use crate::pipeline::{GameState, types::RawFrame};
+use crate::{
+    error::AppError,
+    pipeline::{EnrichedFrame, GameState, types::RawFrame},
+};
 use bloomfilter::Bloom;
 use image::{DynamicImage, ImageBuffer};
 use imghash::{ImageHasher, perceptual::PerceptualHasher};
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
+use tower::Service;
 use tracing::warn;
 
 #[derive(Debug, Clone)]
@@ -43,7 +52,11 @@ pub struct FrameHashingService {
 }
 
 impl FrameHashingService {
-    pub fn detect_game_state(&self, frame: &RawFrame) -> GameState {
+    pub fn new(bloom_filters: HashMap<GameState, Bloom<String>>) -> Self {
+        Self { bloom_filters }
+    }
+
+    fn detect_game_state(&self, frame: &RawFrame) -> GameState {
         let hash = self.hash_frame(frame);
         self.bloom_filters
             .iter()
@@ -64,5 +77,21 @@ impl FrameHashingService {
         let image = DynamicImage::ImageRgb8(image);
         let hash = PerceptualHasher::default().hash_from_img(&image);
         hash.encode()
+    }
+}
+
+impl Service<EnrichedFrame> for FrameHashingService {
+    type Response = EnrichedFrame;
+    type Error = AppError;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, mut enriched_frame: EnrichedFrame) -> Self::Future {
+        let game_state = self.detect_game_state(&enriched_frame.raw);
+        enriched_frame.game_state = Some(Arc::new(game_state));
+        Box::pin(async move { Ok(enriched_frame) })
     }
 }

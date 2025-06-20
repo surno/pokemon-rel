@@ -149,13 +149,6 @@ impl eframe::App for MultiClientApp {
                                     "Client {}x{}",
                                     frame.raw.width, frame.raw.height
                                 ));
-                                if let Some(enriched) = frame.enriched.as_ref() {
-                                    let player_position = enriched.game_state.player_position;
-                                    ui.label(format!(
-                                        "Player Position: {}, {}",
-                                        player_position.0, player_position.1
-                                    ));
-                                }
 
                                 if let Some(prediction) = frame.ml_prediction.as_ref() {
                                     ui.label(format!("Prediction: {:?}", prediction.confidence));

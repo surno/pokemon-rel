@@ -1,12 +1,12 @@
 use crate::app::views::View;
-use crate::pipeline::types::{RawFrame, SharedFrame};
+use crate::pipeline::types::{EnrichedFrame, RawFrame};
 use egui::TextureOptions;
 use image::{ImageBuffer, Rgb};
 use time::OffsetDateTime;
 use uuid::Uuid;
 pub struct ClientView {
     client_id: Uuid,
-    current_frame: Option<SharedFrame>,
+    current_frame: Option<EnrichedFrame>,
     show_frame: bool,
     show_prediction: bool,
     show_game_state: bool,
@@ -14,7 +14,7 @@ pub struct ClientView {
 }
 
 impl ClientView {
-    pub fn new(client_id: Uuid, frame: SharedFrame, fps: f32) -> Self {
+    pub fn new(client_id: Uuid, frame: EnrichedFrame, fps: f32) -> Self {
         Self {
             client_id,
             current_frame: Some(frame),
@@ -40,7 +40,7 @@ impl ClientView {
         })
     }
 
-    fn draw_frame_info(&self, ui: &mut egui::Ui, frame: &SharedFrame) {
+    fn draw_frame_info(&self, ui: &mut egui::Ui, frame: &EnrichedFrame) {
         ui.group(|ui| {
             ui.label(format!("Frame Info for Client {}", self.client_id));
             ui.label(format!("Size: {}x{}", frame.raw.width, frame.raw.height));
@@ -53,7 +53,7 @@ impl ClientView {
         });
     }
 
-    fn draw_game_image(&self, ui: &mut egui::Ui, frame: &SharedFrame) {
+    fn draw_game_image(&self, ui: &mut egui::Ui, frame: &EnrichedFrame) {
         ui.group(|ui| {
             ui.label(format!("Game Image for Client {}", self.client_id));
 
@@ -72,7 +72,7 @@ impl ClientView {
         });
     }
 
-    fn draw_prediction_info(&self, ui: &mut egui::Ui, frame: &SharedFrame) {
+    fn draw_prediction_info(&self, ui: &mut egui::Ui, frame: &EnrichedFrame) {
         ui.group(|ui| {
             ui.label(format!("Prediction Info for Client {}", self.client_id));
             match frame.ml_prediction.as_ref() {
@@ -113,7 +113,7 @@ impl ClientView {
         });
     }
 
-    fn draw_game_state_info(&self, ui: &mut egui::Ui, frame: &SharedFrame) {
+    fn draw_game_state_info(&self, ui: &mut egui::Ui, frame: &EnrichedFrame) {
         ui.group(|ui| {
             ui.label(format!("Game State Info for Client {}", self.client_id));
 

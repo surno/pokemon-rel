@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
 
-pub trait FrameHandler: Send + Sync + Debug {
+pub trait FrameHandler: Send + Sync {
     fn handle_ping<'a>(&'a self)
     -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'a>>;
     fn handle_handshake<'a>(
@@ -30,7 +30,6 @@ pub trait FrameHandler: Send + Sync + Debug {
     ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'a>>;
 }
 
-#[derive(Debug)]
 pub struct DelegatingRouter {
     handler: Box<dyn FrameHandler + Send + Sync>,
 }

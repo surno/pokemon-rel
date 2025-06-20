@@ -7,7 +7,6 @@ use std::pin::Pin;
 use tower::Service;
 use tracing::debug;
 
-#[derive(Debug, Clone)]
 pub struct PokemonFrameHandler {
     fanout_service: FanoutService,
 }
@@ -45,9 +44,7 @@ impl FrameHandler for PokemonFrameHandler {
     ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'static>> {
         debug!("Received image: width={}, height={}", width, height);
         let raw_frame = RawFrame::new(width, height, pixels);
-        let mut fanout_service = self.fanout_service.clone();
         Box::pin(async move {
-            fanout_service.call(raw_frame).await?;
             // TODO: do something with the action
             Ok(())
         })
@@ -61,12 +58,7 @@ impl FrameHandler for PokemonFrameHandler {
     ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'static>> {
         debug!("Received image GD2: width={}, height={}", width, height);
         let raw_frame = RawFrame::new(width, height, gd2_data);
-        let mut fanout_service = self.fanout_service.clone();
-        Box::pin(async move {
-            fanout_service.call(raw_frame).await?;
-            // TODO: do something with the action
-            Ok(())
-        })
+        Box::pin(async move { Ok(()) })
     }
 
     fn handle_shutdown(
