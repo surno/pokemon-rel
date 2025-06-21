@@ -1,103 +1,107 @@
 use crate::{
     error::FrameError,
-    intake::frame::{
-        Frame,
-        reader::{FrameReader, frame_reader::ReadState},
-    },
+    intake::frame::{Frame, reader::FrameReader},
 };
 use image::{DynamicImage, RgbImage};
-use std::future::Future;
 use std::pin::Pin;
 use tokio::io::{AsyncRead, AsyncReadExt, BufReader};
-use tokio::net::TcpStream;
 
 const FRAME_LENGTH_BYTES: usize = 4;
 
-pub struct FramedTcpReader {
-    reader: BufReader<TcpStream>,
+pub struct FramedAsyncBufferedReader<T>
+where
+    T: AsyncRead + Unpin + Sync + Send,
+{
+    reader: BufReader<T>,
 }
 
-impl FramedTcpReader {
-    pub fn new(stream: TcpStream) -> Self {
+impl<T: AsyncRead + Unpin + Sync + Send> FramedAsyncBufferedReader<T> {
+    pub fn new(stream: T) -> Self {
         Self {
             reader: BufReader::new(stream),
         }
     }
+}
 
-    pub async fn read_frame_length(&mut self) -> Result<u32, FrameError> {
-        // [length][tag][data]
-        // [length] is 4 bytes
-        let mut length_buffer = [0u8; FRAME_LENGTH_BYTES];
-        let bytes_read: usize = self
-            .reader
-            .read_exact(&mut length_buffer)
-            .await
-            .map_err(FrameError::Read)?;
-
-        if bytes_read != FRAME_LENGTH_BYTES {
-            return Err(FrameError::InvalidFrameLength(
-                FRAME_LENGTH_BYTES,
-                bytes_read,
-            ));
-        }
-
-        Ok(u32::from_le_bytes(length_buffer))
+impl<T: AsyncRead + Unpin + Sync + Send> FrameReader for FramedAsyncBufferedReader<T> {
+    fn read_frame_length<'a>(
+        &'a mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<u32, FrameError>> + Send + 'a>> {
+        Box::pin(async move {
+            // [length][tag][data]
+            // [length] is 4 bytes
+            let mut length_buffer = [0u8; FRAME_LENGTH_BYTES];
+            let future_read = self.reader.read_exact(&mut length_buffer);
+            let bytes_read = future_read.await.map_err(FrameError::Read)?;
+            if bytes_read != FRAME_LENGTH_BYTES {
+                return Err(FrameError::InvalidFrameLength(
+                    FRAME_LENGTH_BYTES,
+                    bytes_read,
+                ));
+            }
+            Ok(u32::from_le_bytes(length_buffer))
+        })
     }
 
-    async fn read_frame_data(&mut self, expected_length: u32) -> Result<Frame, FrameError> {
-        let mut total_bytes_read = 0;
-        let mut tag_buffer = [0u8; 1];
-        total_bytes_read += self
-            .reader
-            .read_exact(&mut tag_buffer)
-            .await
-            .map_err(FrameError::Read)?;
-        let frame_return: Option<Frame>;
-        let tag = tag_buffer[0];
-        match tag {
-            0 => {
-                frame_return = Some(Frame::Ping);
+    fn read_frame_data<'a>(
+        &'a mut self,
+        expected_length: u32,
+    ) -> Pin<Box<dyn Future<Output = Result<Frame, FrameError>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut total_bytes_read = 0;
+            let mut tag_buffer = [0u8; 1];
+            total_bytes_read += self
+                .reader
+                .read_exact(&mut tag_buffer)
+                .await
+                .map_err(FrameError::Read)?;
+            let frame_return: Option<Frame>;
+            let tag = tag_buffer[0];
+            match tag {
+                0 => {
+                    frame_return = Some(Frame::Ping);
+                }
+                1 => {
+                    let (frame, bytes_read) = read_handshake(&mut self.reader).await?;
+                    total_bytes_read += bytes_read;
+                    frame_return = Some(frame);
+                }
+                2 => {
+                    let (frame, bytes_read) = read_rgb_image(&mut self.reader).await?;
+                    total_bytes_read += bytes_read;
+                    frame_return = Some(frame);
+                }
+                3 => {
+                    let (frame, bytes_read) = read_gd2_image(&mut self.reader).await?;
+                    total_bytes_read += bytes_read;
+                    frame_return = Some(frame);
+                }
+                4 => {
+                    // Shutdown frame
+                    frame_return = Some(Frame::Shutdown);
+                }
+                _ => {
+                    return Err(FrameError::InvalidFrameLength(
+                        expected_length as usize,
+                        total_bytes_read,
+                    ));
+                }
             }
-            1 => {
-                let (frame, bytes_read) = read_handshake(&mut self.reader).await?;
-                total_bytes_read += bytes_read;
-                frame_return = Some(frame);
-            }
-            2 => {
-                let (frame, bytes_read) = read_rgb_image(&mut self.reader).await?;
-                total_bytes_read += bytes_read;
-                frame_return = Some(frame);
-            }
-            3 => {
-                let (frame, bytes_read) = read_gd2_image(&mut self.reader).await?;
-                total_bytes_read += bytes_read;
-                frame_return = Some(frame);
-            }
-            4 => {
-                // Shutdown frame
-                frame_return = Some(Frame::Shutdown);
-            }
-            _ => {
+
+            if total_bytes_read != expected_length as usize {
                 return Err(FrameError::InvalidFrameLength(
                     expected_length as usize,
                     total_bytes_read,
                 ));
             }
-        }
-
-        if total_bytes_read != expected_length as usize {
-            return Err(FrameError::InvalidFrameLength(
-                expected_length as usize,
-                total_bytes_read,
-            ));
-        }
-        match frame_return {
-            Some(frame) => Ok(frame),
-            None => Err(FrameError::InvalidFrameLength(
-                expected_length as usize,
-                total_bytes_read,
-            )),
-        }
+            match frame_return {
+                Some(frame) => Ok(frame),
+                None => Err(FrameError::InvalidFrameLength(
+                    expected_length as usize,
+                    total_bytes_read,
+                )),
+            }
+        })
     }
 }
 
@@ -199,26 +203,4 @@ where
         },
         bytes_read,
     ))
-}
-
-impl FrameReader for FramedTcpReader {
-    fn read<'a>(
-        &'a mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<Frame, FrameError>> + Send + 'a>> {
-        Box::pin(async move {
-            let mut state = ReadState::WaitingForLength;
-            loop {
-                match &mut state {
-                    ReadState::WaitingForLength => {
-                        state = ReadState::WaitingForFrame {
-                            expected_length: self.read_frame_length().await?,
-                        };
-                    }
-                    ReadState::WaitingForFrame { expected_length } => {
-                        return self.read_frame_data(*expected_length).await;
-                    }
-                }
-            }
-        })
-    }
 }
