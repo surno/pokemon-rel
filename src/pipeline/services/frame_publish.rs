@@ -10,19 +10,15 @@ use std::{
 use tokio::sync::broadcast;
 use tower::Service;
 
-pub struct FanoutService {
+#[derive(Clone)]
+pub struct FramePublishingService {
     visualization_tx: broadcast::Sender<EnrichedFrame>,
-    ml_service: MLPipelineService,
 }
 
-impl FanoutService {
-    pub fn new(_scene_annotation_service: SceneAnnotationService) -> Self {
-        let ml_service = MLPipelineService {};
-        let (visualization_tx, _) = broadcast::channel(10);
-        Self {
-            visualization_tx,
-            ml_service,
-        }
+impl FramePublishingService {
+    pub fn new() -> (Self, broadcast::Receiver<EnrichedFrame>) {
+        let (visualization_tx, visualization_rx) = broadcast::channel(10);
+        (Self { visualization_tx }, visualization_rx)
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<EnrichedFrame> {
@@ -30,8 +26,8 @@ impl FanoutService {
     }
 }
 
-impl Service<RawFrame> for FanoutService {
-    type Response = GameAction;
+impl Service<EnrichedFrame> for FramePublishingService {
+    type Response = EnrichedFrame;
     type Error = AppError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
@@ -39,7 +35,8 @@ impl Service<RawFrame> for FanoutService {
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, _: RawFrame) -> Self::Future {
-        todo!()
+    fn call(&mut self, enriched_frame: EnrichedFrame) -> Self::Future {
+        let _ = self.visualization_tx.send(enriched_frame.clone());
+        Box::pin(async move { Ok(enriched_frame) })
     }
 }

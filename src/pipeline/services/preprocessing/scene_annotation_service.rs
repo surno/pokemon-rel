@@ -8,9 +8,10 @@ use imghash::{ImageHasher, perceptual::PerceptualHasher};
 use std::{
     collections::HashMap,
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
 };
-use tower::Service;
+use tower::{Service, util::AndThen};
 
 #[derive(Debug, Clone)]
 pub struct SceneAnnotationBuilder {
@@ -39,18 +40,18 @@ impl SceneAnnotationBuilder {
 
     pub fn build(self) -> SceneAnnotationService {
         SceneAnnotationService {
-            bloom_filters: self.bloom_filters,
+            bloom_filters: Arc::new(self.bloom_filters),
         }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SceneAnnotationService {
-    bloom_filters: HashMap<Scene, Bloom<String>>,
+    bloom_filters: Arc<HashMap<Scene, Bloom<String>>>,
 }
 
 impl SceneAnnotationService {
-    pub fn new(bloom_filters: HashMap<Scene, Bloom<String>>) -> Self {
+    pub fn new(bloom_filters: Arc<HashMap<Scene, Bloom<String>>>) -> Self {
         Self { bloom_filters }
     }
 
@@ -78,9 +79,15 @@ impl Service<EnrichedFrame> for SceneAnnotationService {
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, mut enriched_frame: EnrichedFrame) -> Self::Future {
+    fn call(&mut self, enriched_frame: EnrichedFrame) -> Self::Future {
         let scene = self.detect_scene(&enriched_frame.raw.image);
-        println!("Scene: {:?}", scene);
-        Box::pin(async move { Ok(enriched_frame) })
+        Box::pin(async move {
+            Ok(EnrichedFrame {
+                raw: enriched_frame.raw,
+                state: enriched_frame.state,
+                ml_prediction: enriched_frame.ml_prediction,
+                game_action: enriched_frame.game_action,
+            })
+        })
     }
 }
