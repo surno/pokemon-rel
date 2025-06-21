@@ -2,7 +2,7 @@ use crate::error::AppError;
 use crate::intake::frame::handler::FrameHandler;
 use crate::pipeline::services::FanoutService;
 use crate::pipeline::types::RawFrame;
-use bytes::Bytes;
+use image::DynamicImage;
 use std::future::Future;
 use std::pin::Pin;
 use tracing::debug;
@@ -38,12 +38,18 @@ impl FrameHandler for PokemonFrameHandler {
 
     fn handle_image(
         &self,
-        width: u32,
-        height: u32,
-        pixels: Bytes,
+        image: DynamicImage,
     ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'static>> {
-        debug!("Received image: width={}, height={}", width, height);
-        let _raw_frame = RawFrame::new(width, height, pixels);
+        debug!(
+            "Received image: width={}, height={}",
+            image.width(),
+            image.height()
+        );
+        let _raw_frame = RawFrame::new(
+            image.width(),
+            image.height(),
+            image.as_rgb8().unwrap().to_vec(),
+        );
         Box::pin(async move {
             // TODO: do something with the action
             Ok(())
@@ -54,7 +60,7 @@ impl FrameHandler for PokemonFrameHandler {
         &self,
         width: u32,
         height: u32,
-        gd2_data: Bytes,
+        gd2_data: Vec<u8>,
     ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'static>> {
         debug!("Received image GD2: width={}, height={}", width, height);
         let _ = RawFrame::new(width, height, gd2_data);

@@ -1,4 +1,4 @@
-use bytes::Bytes;
+use image::DynamicImage;
 
 use crate::error::AppError;
 use crate::intake::frame::Frame;
@@ -16,15 +16,13 @@ pub trait FrameHandler: Send + Sync {
     ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'a>>;
     fn handle_image<'a>(
         &'a self,
-        width: u32,
-        height: u32,
-        pixels: Bytes,
+        image: DynamicImage,
     ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'a>>;
     fn handle_image_gd2<'a>(
         &'a self,
         width: u32,
         height: u32,
-        pixels: Bytes,
+        gd2_data: Vec<u8>,
     ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'a>>;
     fn handle_shutdown<'a>(
         &'a self,
@@ -52,11 +50,7 @@ impl DelegatingRouter {
                     .handle_handshake(version, name.clone(), program)
                     .await
             }
-            Frame::Image {
-                width,
-                height,
-                pixels,
-            } => self.handler.handle_image(width, height, pixels).await,
+            Frame::Image { image } => self.handler.handle_image(image).await,
             Frame::ImageGD2 {
                 width,
                 height,

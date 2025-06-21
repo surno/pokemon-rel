@@ -1,4 +1,3 @@
-use bytes::Bytes;
 use image::{DynamicImage, RgbImage};
 use uuid::Uuid;
 
@@ -10,7 +9,7 @@ pub struct RawFrame {
 }
 
 impl RawFrame {
-    pub fn new(width: u32, height: u32, pixels: Bytes) -> Self {
+    pub fn new(width: u32, height: u32, pixels: Vec<u8>) -> Self {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
