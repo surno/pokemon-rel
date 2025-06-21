@@ -67,7 +67,7 @@ impl Client {
     async fn handle_next_message(&mut self) -> Result<bool, AppError> {
         debug!("Handling next message for {:?}", self.id);
         let frame = self.reader.read().await?;
-        self.router.route(frame).await?;
+        self.router.route(frame)?;
         Ok(true)
     }
 

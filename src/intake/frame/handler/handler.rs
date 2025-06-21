@@ -3,7 +3,7 @@ use image::DynamicImage;
 use crate::error::AppError;
 use crate::intake::frame::Frame;
 
-pub trait FrameHandler: Send + Sync {
+pub trait FrameHandler {
     fn handle_ping(&self) -> Result<(), AppError>;
     fn handle_handshake(&self, version: u32, name: String, program: u16) -> Result<(), AppError>;
     fn handle_image(&self, image: DynamicImage) -> Result<(), AppError>;
@@ -20,7 +20,7 @@ impl DelegatingRouter {
         Self { handler }
     }
 
-    pub async fn route(&mut self, frame: Frame) -> Result<(), AppError> {
+    pub fn route(&mut self, frame: Frame) -> Result<(), AppError> {
         match frame {
             Frame::Ping => self.handler.handle_ping(),
             Frame::Handshake {
