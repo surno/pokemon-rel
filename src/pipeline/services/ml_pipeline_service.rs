@@ -3,7 +3,6 @@ use crate::pipeline::types::RawFrame;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use tokio::net::TcpStream;
 use tower::Service;
 
 pub struct MLPipelineService {}
@@ -14,7 +13,7 @@ impl MLPipelineService {
     }
 }
 
-impl Service<TcpStream> for MLPipelineService {
+impl Service<RawFrame> for MLPipelineService {
     type Response = RawFrame;
     type Error = AppError;
     type Future =
@@ -24,7 +23,7 @@ impl Service<TcpStream> for MLPipelineService {
         return Poll::Ready(Ok(()));
     }
 
-    fn call(&mut self, _: TcpStream) -> Self::Future {
+    fn call(&mut self, _: RawFrame) -> Self::Future {
         Box::pin(async move { todo!() })
     }
 }

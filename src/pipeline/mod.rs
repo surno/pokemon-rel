@@ -3,4 +3,4 @@ pub mod services;
 pub mod types;
 
 pub use services::{ActionService, FanoutService, RLService};
-pub use types::{EnrichedFrame, GameAction, GameState, RLPrediction, RawFrame};
+pub use types::{EnrichedFrame, GameAction, RLPrediction, RawFrame, Scene, State};

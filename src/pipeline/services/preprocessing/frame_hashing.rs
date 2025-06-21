@@ -1,6 +1,6 @@
 use crate::{
     error::AppError,
-    pipeline::{EnrichedFrame, GameState},
+    pipeline::{EnrichedFrame, Scene},
 };
 use bloomfilter::Bloom;
 use image::DynamicImage;
@@ -8,19 +8,18 @@ use imghash::{ImageHasher, perceptual::PerceptualHasher};
 use std::{
     collections::HashMap,
     pin::Pin,
-    sync::Arc,
     task::{Context, Poll},
 };
 use tower::Service;
 
 #[derive(Debug, Clone)]
-pub struct FrameHashingBuilder {
-    bloom_filters: HashMap<GameState, Bloom<String>>,
+pub struct SceneAnnotationBuilder {
+    bloom_filters: HashMap<Scene, Bloom<String>>,
     capacity: usize,
     fp_rate: f64,
 }
 
-impl FrameHashingBuilder {
+impl SceneAnnotationBuilder {
     pub fn new(capacity: usize, fp_rate: f64) -> Self {
         Self {
             bloom_filters: HashMap::new(),
@@ -29,39 +28,39 @@ impl FrameHashingBuilder {
         }
     }
 
-    pub fn with_game_state(mut self, game_state: GameState, hashes: Vec<String>) -> Self {
+    pub fn with_scene(mut self, scene: Scene, hashes: Vec<String>) -> Self {
         let mut bloom_filter = Bloom::new_for_fp_rate(self.capacity, self.fp_rate).unwrap();
         for hash in hashes {
             bloom_filter.set(&hash);
         }
-        self.bloom_filters.insert(game_state, bloom_filter);
+        self.bloom_filters.insert(scene, bloom_filter);
         self
     }
 
-    pub fn build(self) -> FrameHashingService {
-        FrameHashingService {
+    pub fn build(self) -> SceneAnnotationService {
+        SceneAnnotationService {
             bloom_filters: self.bloom_filters,
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct FrameHashingService {
-    bloom_filters: HashMap<GameState, Bloom<String>>,
+pub struct SceneAnnotationService {
+    bloom_filters: HashMap<Scene, Bloom<String>>,
 }
 
-impl FrameHashingService {
-    pub fn new(bloom_filters: HashMap<GameState, Bloom<String>>) -> Self {
+impl SceneAnnotationService {
+    pub fn new(bloom_filters: HashMap<Scene, Bloom<String>>) -> Self {
         Self { bloom_filters }
     }
 
-    fn detect_game_state(&self, frame: &DynamicImage) -> GameState {
+    fn detect_scene(&self, frame: &DynamicImage) -> Scene {
         let hash = self.hash_frame(frame);
         self.bloom_filters
             .iter()
             .find(|(_, filter)| filter.check(&hash))
-            .map(|(game_state, _)| *game_state)
-            .unwrap_or(GameState::Unknown)
+            .map(|(scene, _)| *scene)
+            .unwrap_or(Scene::Unknown)
     }
 
     fn hash_frame(&self, frame: &DynamicImage) -> String {
@@ -70,7 +69,7 @@ impl FrameHashingService {
     }
 }
 
-impl Service<EnrichedFrame> for FrameHashingService {
+impl Service<EnrichedFrame> for SceneAnnotationService {
     type Response = EnrichedFrame;
     type Error = AppError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
@@ -80,8 +79,8 @@ impl Service<EnrichedFrame> for FrameHashingService {
     }
 
     fn call(&mut self, mut enriched_frame: EnrichedFrame) -> Self::Future {
-        let game_state = self.detect_game_state(&enriched_frame.raw.image);
-        enriched_frame.game_state = Some(Arc::new(game_state));
+        let scene = self.detect_scene(&enriched_frame.raw.image);
+        println!("Scene: {:?}", scene);
         Box::pin(async move { Ok(enriched_frame) })
     }
 }

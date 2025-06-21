@@ -46,7 +46,6 @@ impl FrameHandler for PokemonFrameHandler {
 
     fn handle_image_gd2(&self, width: u32, height: u32, gd2_data: Vec<u8>) -> Result<(), AppError> {
         debug!("Received image GD2: width={}, height={}", width, height);
-        let _ = RawFrame::new(width, height, gd2_data);
         Ok(())
     }
 
