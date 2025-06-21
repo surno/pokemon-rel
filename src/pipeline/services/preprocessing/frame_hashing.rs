@@ -1,9 +1,9 @@
 use crate::{
     error::AppError,
-    pipeline::{EnrichedFrame, GameState, types::RawFrame},
+    pipeline::{EnrichedFrame, GameState},
 };
 use bloomfilter::Bloom;
-use image::{DynamicImage, ImageBuffer};
+use image::DynamicImage;
 use imghash::{ImageHasher, perceptual::PerceptualHasher};
 use std::{
     collections::HashMap,
@@ -12,7 +12,6 @@ use std::{
     task::{Context, Poll},
 };
 use tower::Service;
-use tracing::warn;
 
 #[derive(Debug, Clone)]
 pub struct FrameHashingBuilder {
@@ -56,7 +55,7 @@ impl FrameHashingService {
         Self { bloom_filters }
     }
 
-    fn detect_game_state(&self, frame: &RawFrame) -> GameState {
+    fn detect_game_state(&self, frame: &DynamicImage) -> GameState {
         let hash = self.hash_frame(frame);
         self.bloom_filters
             .iter()
@@ -65,17 +64,8 @@ impl FrameHashingService {
             .unwrap_or(GameState::Unknown)
     }
 
-    fn hash_frame(&self, frame: &RawFrame) -> String {
-        let image = match ImageBuffer::from_raw(frame.width, frame.height, frame.pixels.clone()) {
-            Some(image) => image,
-            None => {
-                warn!("Failed to convert frame to image");
-                return String::new();
-            }
-        };
-
-        let image = DynamicImage::ImageRgb8(image);
-        let hash = PerceptualHasher::default().hash_from_img(&image);
+    fn hash_frame(&self, frame: &DynamicImage) -> String {
+        let hash = PerceptualHasher::default().hash_from_img(frame);
         hash.encode()
     }
 }
@@ -90,7 +80,7 @@ impl Service<EnrichedFrame> for FrameHashingService {
     }
 
     fn call(&mut self, mut enriched_frame: EnrichedFrame) -> Self::Future {
-        let game_state = self.detect_game_state(&enriched_frame.raw);
+        let game_state = self.detect_game_state(&enriched_frame.raw.image);
         enriched_frame.game_state = Some(Arc::new(game_state));
         Box::pin(async move { Ok(enriched_frame) })
     }

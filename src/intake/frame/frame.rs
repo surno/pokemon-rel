@@ -14,12 +14,12 @@ pub enum Frame {
     Image {
         width: u32,
         height: u32,
-        pixels: Vec<u8>,
+        pixels: Bytes,
     },
     ImageGD2 {
         width: u32,
         height: u32,
-        gd2_data: Vec<u8>,
+        gd2_data: Bytes,
     },
     Shutdown,
 }
@@ -60,7 +60,7 @@ impl TryFrom<Bytes> for Frame {
                     u32::from_le_bytes(slice[1..5].try_into().map_err(FrameError::InvalidWidth)?);
                 let height =
                     u32::from_le_bytes(slice[5..9].try_into().map_err(FrameError::InvalidHeight)?);
-                let pixels = slice[9..].to_vec();
+                let pixels = slice.slice(9..);
                 // verify the pixels match the width and height for RGB format (3 bytes per pixel)
                 let expected_rgb_size = (width * height * 3) as usize;
                 if pixels.len() != expected_rgb_size {
@@ -91,7 +91,7 @@ impl TryFrom<Bytes> for Frame {
                     u32::from_le_bytes(slice[1..5].try_into().map_err(FrameError::InvalidWidth)?);
                 let height =
                     u32::from_le_bytes(slice[5..9].try_into().map_err(FrameError::InvalidHeight)?);
-                let gd2_data = slice[9..].to_vec();
+                let gd2_data = slice.slice(9..);
 
                 // Basic validation - GD2 files should start with "GD2"
                 if gd2_data.len() < 4 {

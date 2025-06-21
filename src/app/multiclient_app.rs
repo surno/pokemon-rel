@@ -135,7 +135,8 @@ impl eframe::App for MultiClientApp {
                                 // Mini preview
                                 ui.label(format!(
                                     "Client {}x{}",
-                                    frame.raw.width, frame.raw.height
+                                    frame.raw.image.width(),
+                                    frame.raw.image.height()
                                 ));
 
                                 if let Some(prediction) = frame.ml_prediction.as_ref() {
