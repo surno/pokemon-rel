@@ -3,8 +3,6 @@ use crate::intake::frame::handler::FrameHandler;
 use crate::pipeline::services::FanoutService;
 use crate::pipeline::types::RawFrame;
 use image::DynamicImage;
-use std::future::Future;
-use std::pin::Pin;
 use tracing::debug;
 
 pub struct PokemonFrameHandler {
@@ -18,28 +16,20 @@ impl PokemonFrameHandler {
 }
 
 impl FrameHandler for PokemonFrameHandler {
-    fn handle_ping(&self) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'static>> {
+    fn handle_ping(&self) -> Result<(), AppError> {
         debug!("Received ping");
-        Box::pin(async { Ok(()) })
+        Ok(())
     }
 
-    fn handle_handshake(
-        &self,
-        version: u32,
-        name: String,
-        program: u16,
-    ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'static>> {
+    fn handle_handshake(&self, version: u32, name: String, program: u16) -> Result<(), AppError> {
         debug!(
             "Received handshake: version={}, name={}, program={}",
             version, name, program
         );
-        Box::pin(async { Ok(()) })
+        Ok(())
     }
 
-    fn handle_image(
-        &self,
-        image: DynamicImage,
-    ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'static>> {
+    fn handle_image(&self, image: DynamicImage) -> Result<(), AppError> {
         debug!(
             "Received image: width={}, height={}",
             image.width(),
@@ -50,27 +40,18 @@ impl FrameHandler for PokemonFrameHandler {
             image.height(),
             image.as_rgb8().unwrap().to_vec(),
         );
-        Box::pin(async move {
-            // TODO: do something with the action
-            Ok(())
-        })
+        // TODO: do something with the action
+        Ok(())
     }
 
-    fn handle_image_gd2(
-        &self,
-        width: u32,
-        height: u32,
-        gd2_data: Vec<u8>,
-    ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'static>> {
+    fn handle_image_gd2(&self, width: u32, height: u32, gd2_data: Vec<u8>) -> Result<(), AppError> {
         debug!("Received image GD2: width={}, height={}", width, height);
         let _ = RawFrame::new(width, height, gd2_data);
-        Box::pin(async move { Ok(()) })
+        Ok(())
     }
 
-    fn handle_shutdown(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'static>> {
+    fn handle_shutdown(&self) -> Result<(), AppError> {
         debug!("Received shutdown");
-        Box::pin(async { Ok(()) })
+        Ok(())
     }
 }
