@@ -1,6 +1,5 @@
 use image::DynamicImage;
 
-#[derive(PartialEq)]
 pub enum Frame {
     Ping,
     Handshake {
