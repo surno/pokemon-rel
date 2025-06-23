@@ -1,25 +1,26 @@
-use std::sync::Arc;
-
-use crate::{error::AppError, intake::frame::reader::FrameReader, pipeline::EnrichedFrame};
-use tokio::sync::broadcast;
+use crate::{
+    error::AppError,
+    intake::frame::{reader::FrameReader, visitor::FrameVisitor},
+};
 use tracing::{error, info};
 use uuid::Uuid;
 
 pub struct Client {
     id: Uuid,
     reader: Box<dyn FrameReader + Send + Sync>,
-    subscription: Arc<broadcast::Sender<Arc<EnrichedFrame>>>,
+    visitor: Box<dyn FrameVisitor + Send + Sync>,
 }
 
 impl Client {
-    pub fn new(reader: Box<dyn FrameReader + Send + Sync>) -> Box<Client> {
+    pub fn new(
+        reader: Box<dyn FrameReader + Send + Sync>,
+        visitor: Box<dyn FrameVisitor + Send + Sync>,
+    ) -> Box<Client> {
         let id = Uuid::new_v4();
-        let (tx, _) = broadcast::channel::<Arc<EnrichedFrame>>(60);
-        let tx = Arc::new(tx);
         Box::new(Client {
             id,
             reader,
-            subscription: tx.clone(),
+            visitor,
         })
     }
 
@@ -28,9 +29,9 @@ impl Client {
         loop {
             let next_message = self.reader.read().await;
             match next_message {
-                Ok(_) => {
+                Ok(frame) => {
                     info!("Client {:?} received frame", self.id);
-                    // self.subscriptions.send(Arc::new(frame));
+                    frame.accept(self.visitor.as_mut());
                 }
                 Err(e) => {
                     error!("Client pipeline for {:?} handled message: {:?}", self.id, e);

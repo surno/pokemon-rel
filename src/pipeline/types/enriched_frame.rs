@@ -1,7 +1,10 @@
 use image::DynamicImage;
 use uuid::Uuid;
 
-use crate::pipeline::types::{GameAction, State};
+use crate::{
+    intake::frame::frame::Frame,
+    pipeline::types::{GameAction, State},
+};
 
 #[derive(Clone)]
 pub struct EnrichedFrame {

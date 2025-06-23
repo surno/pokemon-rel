@@ -1,7 +1,9 @@
 use image::DynamicImage;
+use tokio::sync::broadcast;
 
 use crate::error::AppError;
 use crate::intake::frame::Frame;
+use crate::pipeline::EnrichedFrame;
 
 pub trait FrameVisitor: Send + Sync {
     fn ping(&mut self) -> Result<(), AppError>;
@@ -24,9 +26,11 @@ impl DelegatingRouter {
     }
 }
 
-pub struct BasicFrameVisitor;
+pub struct FrameTranslatorVisitor {
+    subscription: broadcast::Sender<EnrichedFrame>,
+}
 
-impl FrameVisitor for BasicFrameVisitor {
+impl FrameVisitor for FrameTranslatorVisitor {
     fn ping(&mut self) -> Result<(), AppError> {
         Ok(())
     }
@@ -36,6 +40,7 @@ impl FrameVisitor for BasicFrameVisitor {
     fn image(&mut self, _: DynamicImage) -> Result<(), AppError> {
         Ok(())
     }
+
     fn shutdown(&mut self) -> Result<(), AppError> {
         Ok(())
     }
