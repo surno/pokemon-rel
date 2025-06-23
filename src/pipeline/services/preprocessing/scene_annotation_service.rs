@@ -1,6 +1,6 @@
 use crate::{
     error::AppError,
-    pipeline::{EnrichedFrame, Scene},
+    pipeline::{EnrichedFrame, Scene, State},
 };
 use bloomfilter::Bloom;
 use image::DynamicImage;
@@ -79,16 +79,14 @@ impl Service<EnrichedFrame> for SceneAnnotationService {
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, enriched_frame: EnrichedFrame) -> Self::Future {
-        let _ = self.detect_scene(&enriched_frame.image);
-        Box::pin(async move {
-            todo!()
-            // Ok(EnrichedFrame {
-            //     raw: enriched_frame.raw,
-            //     state: enriched_frame.state,
-            //     ml_prediction: enriched_frame.ml_prediction,
-            //     game_action: enriched_frame.game_action,
-            // })
-        })
+    fn call(&mut self, mut enriched_frame: EnrichedFrame) -> Self::Future {
+        let scene = self.detect_scene(&enriched_frame.image);
+        enriched_frame.state = Some(State {
+            scene,
+            player_position: (0.0, 0.0),
+            pokemon_count: 0,
+        });
+
+        Box::pin(async move { Ok(enriched_frame) })
     }
 }
