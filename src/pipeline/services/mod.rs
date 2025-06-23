@@ -1,7 +1,7 @@
 pub mod action_service;
 pub mod frame_publish;
+pub mod image;
 pub mod ml_pipeline_service;
-pub mod preprocessing;
 pub mod rl_service;
 
 pub use action_service::ActionService;
