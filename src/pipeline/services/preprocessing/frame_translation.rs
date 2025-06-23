@@ -1,5 +1,5 @@
 use crate::error::AppError;
-use crate::pipeline::types::{EnrichedFrame, RawFrame};
+use crate::pipeline::types::EnrichedFrame;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -40,7 +40,7 @@ impl FrameTranslationService {
     }
 }
 
-impl Service<RawFrame> for FrameTranslationService {
+impl Service<EnrichedFrame> for FrameTranslationService {
     type Response = EnrichedFrame;
     type Error = AppError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
@@ -49,12 +49,13 @@ impl Service<RawFrame> for FrameTranslationService {
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, request: RawFrame) -> Self::Future {
-        let service = self.service.clone();
+    fn call(&mut self, _: EnrichedFrame) -> Self::Future {
+        let _ = self.service.clone();
         Box::pin(async move {
-            let mut service = service.write().await;
-            let enriched_frame = service.call(EnrichedFrame::from(request)).await?;
-            Ok(enriched_frame)
+            // let mut service = service.write().await;
+            // let enriched_frame = service.call(EnrichedFrame::from(request)).await?;
+            // Ok(enriched_frame)
+            todo!()
         })
     }
 }

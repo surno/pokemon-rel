@@ -1,6 +1,5 @@
 pub mod client;
-pub mod client_manager;
+pub mod manager;
 
 pub use client::Client;
-pub use client::ClientHandle;
-pub use client_manager::FrameReaderClientManager;
+pub use manager::ClientManager;

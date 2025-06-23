@@ -1,5 +1,7 @@
 use image::DynamicImage;
 
+use crate::{error::AppError, intake::frame::visitor::FrameVisitor};
+
 pub enum Frame {
     Ping,
     Handshake {
@@ -10,10 +12,23 @@ pub enum Frame {
     Image {
         image: DynamicImage,
     },
-    ImageGD2 {
-        width: u32,
-        height: u32,
-        gd2_data: Vec<u8>,
-    },
     Shutdown,
+}
+
+impl Frame {
+    pub fn accept<V: FrameVisitor + Send + Sync + ?Sized>(
+        &self,
+        visitor: &mut V,
+    ) -> Result<(), AppError> {
+        match self {
+            Frame::Ping => visitor.ping(),
+            Frame::Handshake {
+                version,
+                name,
+                program,
+            } => visitor.handshake(*version, name.clone(), *program),
+            Frame::Image { image } => visitor.image(image.clone()),
+            Frame::Shutdown => visitor.shutdown(),
+        }
+    }
 }

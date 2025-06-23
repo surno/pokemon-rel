@@ -72,11 +72,6 @@ impl<T: AsyncRead + Unpin + Sync + Send> FrameReader for FramedAsyncBufferedRead
                     frame_return = Some(frame);
                 }
                 3 => {
-                    let (frame, bytes_read) = read_gd2_image(&mut self.reader).await?;
-                    total_bytes_read += bytes_read;
-                    frame_return = Some(frame);
-                }
-                4 => {
                     // Shutdown frame
                     frame_return = Some(Frame::Shutdown);
                 }
@@ -103,38 +98,6 @@ impl<T: AsyncRead + Unpin + Sync + Send> FrameReader for FramedAsyncBufferedRead
             }
         })
     }
-}
-
-async fn read_gd2_image<T>(buf_reader: &mut BufReader<T>) -> Result<(Frame, usize), FrameError>
-where
-    T: AsyncRead + Unpin,
-{
-    let mut bytes_read = 0;
-    let mut width_buffer = [0u8; 4];
-    bytes_read += buf_reader
-        .read_exact(&mut width_buffer)
-        .await
-        .map_err(FrameError::Read)?;
-    let width = u32::from_le_bytes(width_buffer);
-    let mut height_buffer = [0u8; 4];
-    bytes_read += buf_reader
-        .read_exact(&mut height_buffer)
-        .await
-        .map_err(FrameError::Read)?;
-    let height = u32::from_le_bytes(height_buffer);
-    let mut gd2_data_buffer = vec![0u8; (width * height) as usize];
-    bytes_read += buf_reader
-        .read_exact(&mut gd2_data_buffer)
-        .await
-        .map_err(FrameError::Read)?;
-    Ok((
-        Frame::ImageGD2 {
-            width,
-            height,
-            gd2_data: gd2_data_buffer,
-        },
-        bytes_read,
-    ))
 }
 
 async fn read_rgb_image<T>(buf_reader: &mut BufReader<T>) -> Result<(Frame, usize), FrameError>

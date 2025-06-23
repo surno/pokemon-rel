@@ -11,7 +11,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use tower::{Service, util::AndThen};
+use tower::Service;
 
 #[derive(Debug, Clone)]
 pub struct SceneAnnotationBuilder {
@@ -80,14 +80,15 @@ impl Service<EnrichedFrame> for SceneAnnotationService {
     }
 
     fn call(&mut self, enriched_frame: EnrichedFrame) -> Self::Future {
-        let scene = self.detect_scene(&enriched_frame.raw.image);
+        let _ = self.detect_scene(&enriched_frame.image);
         Box::pin(async move {
-            Ok(EnrichedFrame {
-                raw: enriched_frame.raw,
-                state: enriched_frame.state,
-                ml_prediction: enriched_frame.ml_prediction,
-                game_action: enriched_frame.game_action,
-            })
+            todo!()
+            // Ok(EnrichedFrame {
+            //     raw: enriched_frame.raw,
+            //     state: enriched_frame.state,
+            //     ml_prediction: enriched_frame.ml_prediction,
+            //     game_action: enriched_frame.game_action,
+            // })
         })
     }
 }

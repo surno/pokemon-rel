@@ -1,21 +1,27 @@
-use crate::pipeline::types::{GameAction, RLPrediction, RawFrame, State};
-use std::sync::Arc;
+use image::DynamicImage;
+use uuid::Uuid;
 
-#[derive(Debug, Clone)]
+use crate::pipeline::types::{GameAction, State};
+
+#[derive(Clone)]
 pub struct EnrichedFrame {
-    pub raw: Arc<RawFrame>,
+    pub client: Uuid,
+    pub image: DynamicImage,
+    pub timestamp: u64,
+    pub id: Uuid,
     pub state: Option<State>,
-    pub ml_prediction: Option<Arc<RLPrediction>>,
-    pub game_action: Option<Arc<GameAction>>,
+    pub action: Option<GameAction>,
 }
 
-impl From<RawFrame> for EnrichedFrame {
-    fn from(raw: RawFrame) -> Self {
+impl EnrichedFrame {
+    pub fn new(client: Uuid, image: DynamicImage, timestamp: u64, id: Uuid) -> Self {
         Self {
-            raw: Arc::new(raw),
+            client,
+            image,
+            timestamp,
+            id,
             state: None,
-            ml_prediction: None,
-            game_action: None,
+            action: None,
         }
     }
 }

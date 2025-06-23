@@ -1,8 +1,5 @@
 use crate::error::AppError;
-use crate::pipeline::{
-    services::{MLPipelineService, preprocessing::SceneAnnotationService},
-    types::{EnrichedFrame, GameAction, RawFrame},
-};
+use crate::pipeline::types::EnrichedFrame;
 use std::{
     pin::Pin,
     task::{Context, Poll},

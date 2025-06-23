@@ -1,5 +1,5 @@
 use crate::error::AppError;
-use crate::pipeline::types::RawFrame;
+use crate::pipeline::EnrichedFrame;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -13,8 +13,8 @@ impl MLPipelineService {
     }
 }
 
-impl Service<RawFrame> for MLPipelineService {
-    type Response = RawFrame;
+impl Service<EnrichedFrame> for MLPipelineService {
+    type Response = EnrichedFrame;
     type Error = AppError;
     type Future =
         Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
@@ -23,7 +23,7 @@ impl Service<RawFrame> for MLPipelineService {
         return Poll::Ready(Ok(()));
     }
 
-    fn call(&mut self, _: RawFrame) -> Self::Future {
+    fn call(&mut self, _: EnrichedFrame) -> Self::Future {
         Box::pin(async move { todo!() })
     }
 }
