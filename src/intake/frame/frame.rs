@@ -1,17 +1,12 @@
 use image::DynamicImage;
+use uuid::Uuid;
 
 use crate::{error::AppError, intake::frame::visitor::FrameVisitor};
 
 pub enum Frame {
     Ping,
-    Handshake {
-        version: u32,
-        name: String,
-        program: u16,
-    },
-    Image {
-        image: DynamicImage,
-    },
+    Handshake { id: Uuid, program: u16 },
+    Image { image: DynamicImage },
     Shutdown,
 }
 
@@ -22,11 +17,7 @@ impl Frame {
     ) -> Result<(), AppError> {
         match self {
             Frame::Ping => visitor.ping(),
-            Frame::Handshake {
-                version,
-                name,
-                program,
-            } => visitor.handshake(*version, name.clone(), *program),
+            Frame::Handshake { id, program } => visitor.handshake(*id, *program),
             Frame::Image { image } => visitor.image(image.clone()),
             Frame::Shutdown => visitor.shutdown(),
         }

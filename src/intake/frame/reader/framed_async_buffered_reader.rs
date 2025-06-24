@@ -4,18 +4,19 @@ use crate::{
 };
 use image::{DynamicImage, RgbImage};
 use std::pin::Pin;
-use tokio::io::{AsyncRead, AsyncReadExt, BufReader};
+use tokio::io::{AsyncReadExt, BufReader};
+use uuid::Uuid;
 
 const FRAME_LENGTH_BYTES: usize = 4;
 
 pub struct FramedAsyncBufferedReader<T>
 where
-    T: AsyncRead + Unpin + Sync + Send,
+    T: AsyncReadExt + Unpin + Sync + Send,
 {
     reader: BufReader<T>,
 }
 
-impl<T: AsyncRead + Unpin + Sync + Send> FramedAsyncBufferedReader<T> {
+impl<T: AsyncReadExt + Unpin + Sync + Send> FramedAsyncBufferedReader<T> {
     pub fn new(stream: T) -> Self {
         Self {
             reader: BufReader::new(stream),
@@ -23,7 +24,7 @@ impl<T: AsyncRead + Unpin + Sync + Send> FramedAsyncBufferedReader<T> {
     }
 }
 
-impl<T: AsyncRead + Unpin + Sync + Send> FrameReader for FramedAsyncBufferedReader<T> {
+impl<T: AsyncReadExt + Unpin + Sync + Send> FrameReader for FramedAsyncBufferedReader<T> {
     fn read_frame_length<'a>(
         &'a mut self,
     ) -> Pin<Box<dyn Future<Output = Result<u32, FrameError>> + Send + 'a>> {
@@ -102,7 +103,7 @@ impl<T: AsyncRead + Unpin + Sync + Send> FrameReader for FramedAsyncBufferedRead
 
 async fn read_rgb_image<T>(buf_reader: &mut BufReader<T>) -> Result<(Frame, usize), FrameError>
 where
-    T: AsyncRead + Unpin,
+    T: AsyncReadExt + Unpin,
 {
     let mut bytes_read = 0;
     let mut width_buffer = [0u8; 4];
@@ -134,25 +135,9 @@ where
 
 async fn read_handshake<T>(buf_reader: &mut BufReader<T>) -> Result<(Frame, usize), FrameError>
 where
-    T: AsyncRead + Unpin,
+    T: AsyncReadExt + Unpin,
 {
     let mut bytes_read = 0;
-    let mut version_buffer = [0u8; 4];
-    bytes_read += buf_reader
-        .read_exact(&mut version_buffer)
-        .await
-        .map_err(FrameError::Read)?;
-    let mut name_length_buffer = [0u8; 2];
-    bytes_read += buf_reader
-        .read_exact(&mut name_length_buffer)
-        .await
-        .map_err(FrameError::Read)?;
-    let name_length = u16::from_le_bytes(name_length_buffer);
-    let mut name_buffer = vec![0u8; name_length as usize];
-    bytes_read += buf_reader
-        .read_exact(&mut name_buffer)
-        .await
-        .map_err(FrameError::Read)?;
     let mut program_buffer = [0u8; 2];
     bytes_read += buf_reader
         .read_exact(&mut program_buffer)
@@ -160,8 +145,7 @@ where
         .map_err(FrameError::Read)?;
     Ok((
         Frame::Handshake {
-            version: u32::from_le_bytes(version_buffer),
-            name: String::from_utf8(name_buffer).map_err(FrameError::InvalidName)?,
+            id: Uuid::new_v4(),
             program: u16::from_le_bytes(program_buffer),
         },
         bytes_read,

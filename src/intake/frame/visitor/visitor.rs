@@ -1,47 +1,69 @@
 use image::DynamicImage;
-use tokio::sync::broadcast;
+use tokio::sync::mpsc;
+use uuid::Uuid;
 
 use crate::error::AppError;
-use crate::intake::frame::Frame;
 use crate::pipeline::EnrichedFrame;
 
 pub trait FrameVisitor: Send + Sync {
     fn ping(&mut self) -> Result<(), AppError>;
-    fn handshake(&mut self, version: u32, name: String, program: u16) -> Result<(), AppError>;
+    fn handshake(&mut self, id: Uuid, program: u16) -> Result<(), AppError>;
     fn image(&mut self, image: DynamicImage) -> Result<(), AppError>;
     fn shutdown(&mut self) -> Result<(), AppError>;
 }
 
-pub struct DelegatingRouter {
-    visitor: Box<dyn FrameVisitor + Send + Sync>,
+#[derive(PartialEq)]
+enum ClientState {
+    Handshake,
+    Running,
+    Shutdown,
+}
+pub struct FrameDelegatingVisitor {
+    subscription: mpsc::Sender<EnrichedFrame>,
+    state: ClientState,
+    client_id: Uuid,
+    program: u16,
 }
 
-impl DelegatingRouter {
-    pub fn new(visitor: Box<dyn FrameVisitor + Send + Sync>) -> Self {
-        Self { visitor }
+impl FrameDelegatingVisitor {
+    pub fn new(subscription: mpsc::Sender<EnrichedFrame>) -> Self {
+        Self {
+            subscription,
+            state: ClientState::Handshake,
+            client_id: Uuid::new_v4(),
+            program: 0,
+        }
     }
-
-    pub fn route(&mut self, frame: Frame) -> Result<(), AppError> {
-        frame.accept(self.visitor.as_mut())
-    }
 }
 
-pub struct FrameTranslatorVisitor {
-    subscription: broadcast::Sender<EnrichedFrame>,
-}
-
-impl FrameVisitor for FrameTranslatorVisitor {
+impl FrameVisitor for FrameDelegatingVisitor {
     fn ping(&mut self) -> Result<(), AppError> {
         Ok(())
     }
-    fn handshake(&mut self, _: u32, _: String, _: u16) -> Result<(), AppError> {
-        Ok(())
+    fn handshake(&mut self, id: Uuid, program: u16) -> Result<(), AppError> {
+        match self.state {
+            ClientState::Handshake => {
+                self.state = ClientState::Running;
+                self.client_id = id;
+                self.program = program;
+                Ok(())
+            }
+            _ => Err(AppError::Client("Client already connected".to_string())),
+        }
     }
-    fn image(&mut self, _: DynamicImage) -> Result<(), AppError> {
-        Ok(())
+    fn image(&mut self, image: DynamicImage) -> Result<(), AppError> {
+        if self.state == ClientState::Running || self.state == ClientState::Handshake {
+            // send the enriched frame to the subscription
+            self.subscription
+                .send(EnrichedFrame::new(self.client_id, image, self.program));
+            Ok(())
+        } else {
+            Err(AppError::Client("Client is not available.".to_string()))
+        }
     }
 
     fn shutdown(&mut self) -> Result<(), AppError> {
+        self.state = ClientState::Shutdown;
         Ok(())
     }
 }

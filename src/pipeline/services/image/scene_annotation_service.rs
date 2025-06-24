@@ -7,6 +7,7 @@ use image::DynamicImage;
 use imghash::{ImageHasher, perceptual::PerceptualHasher};
 use std::{
     collections::HashMap,
+    future::Future,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
@@ -81,11 +82,16 @@ impl Service<EnrichedFrame> for SceneAnnotationService {
 
     fn call(&mut self, mut enriched_frame: EnrichedFrame) -> Self::Future {
         let scene = self.detect_scene(&enriched_frame.image);
-        enriched_frame.state = Some(State {
-            scene,
-            player_position: (0.0, 0.0),
-            pokemon_count: 0,
-        });
+
+        if let Some(state) = &mut enriched_frame.state {
+            state.scene = scene;
+        } else {
+            enriched_frame.state = Some(State {
+                scene,
+                player_position: (0.0, 0.0),
+                pokemon_count: 0,
+            });
+        }
 
         Box::pin(async move { Ok(enriched_frame) })
     }
