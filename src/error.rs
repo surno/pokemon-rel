@@ -27,8 +27,8 @@ pub enum AppError {
     Frame(#[from] FrameError),
 
     // Pipeline/Service Errors
-    #[error("Preprocessing error: {0}")]
-    Preprocessing(String),
+    #[error("Pipeline error: {0}")]
+    Pipeline(String),
     #[error("Reinforcement learning service error: {0}")]
     RLService(String),
     #[error("Action service error: {0}")]

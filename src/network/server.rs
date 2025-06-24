@@ -1,7 +1,9 @@
 use crate::{
-    ClientManager,
     error::AppError,
-    intake::frame::{reader::FramedAsyncBufferedReader, writer::FramedAsyncBufferedWriter},
+    intake::{
+        client::manager::ClientManagerHandle,
+        frame::{reader::FramedAsyncBufferedReader, writer::FramedAsyncBufferedWriter},
+    },
 };
 use tokio::net::{TcpListener, TcpStream};
 
@@ -10,11 +12,11 @@ use uuid::Uuid;
 
 pub struct Server {
     port: u16,
-    client_manager: ClientManager,
+    client_manager: ClientManagerHandle,
 }
 
 impl Server {
-    pub fn new(port: u16, client_manager: ClientManager) -> Self {
+    pub fn new(port: u16, client_manager: ClientManagerHandle) -> Self {
         Self {
             port,
             client_manager,

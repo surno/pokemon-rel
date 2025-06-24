@@ -1,5 +1,6 @@
 use crate::app::views::View;
 use crate::pipeline::types::EnrichedFrame;
+use chrono::Utc;
 use egui::TextureOptions;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -9,18 +10,16 @@ pub struct ClientView {
     show_frame: bool,
     show_prediction: bool,
     show_game_state: bool,
-    fps: f32,
 }
 
 impl ClientView {
-    pub fn new(client_id: Uuid, frame: EnrichedFrame, fps: f32) -> Self {
+    pub fn new(client_id: Uuid, frame: EnrichedFrame) -> Self {
         Self {
             client_id,
             current_frame: Some(frame),
             show_frame: true,
             show_prediction: true,
             show_game_state: true,
-            fps,
         }
     }
 
@@ -36,11 +35,7 @@ impl ClientView {
                 "Pixels: {:?} bytes",
                 frame.image.as_rgb8().unwrap().as_raw().len()
             ));
-            ui.label(format!(
-                "Timestamp: {:?}",
-                OffsetDateTime::from_unix_timestamp(frame.timestamp as i64).unwrap()
-            ));
-            ui.label(format!("FPS: {:.1}", self.fps));
+            ui.label(format!("Timestamp: {:?}", frame.timestamp));
         });
     }
 

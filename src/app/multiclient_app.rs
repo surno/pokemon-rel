@@ -1,58 +1,78 @@
-use std::collections::HashMap;
-use std::time::SystemTime;
+use tokio::sync::broadcast::error::TryRecvError as BroadcastTryRecvError;
+use tokio::sync::mpsc::error::TryRecvError as MpscTryRecvError;
+use tokio::sync::{broadcast, mpsc};
+use tokio::task::JoinHandle;
 use uuid::Uuid;
 
 use crate::app::views::{View, client_view::ClientView};
-use crate::intake::client::manager::{ClientHandle, ClientManager};
+use crate::intake::client::manager::{ClientManager, ClientManagerHandle};
+use crate::network::server::Server;
+use crate::pipeline::EnrichedFrame;
+use tracing::{debug, error};
 
-struct FpsTracker {
-    last_timestamp: SystemTime,
-    frame_count: usize,
-    last_fps: f32,
-}
-
-impl FpsTracker {
-    pub fn new() -> Self {
-        Self {
-            last_timestamp: SystemTime::now(),
-            frame_count: 0,
-            last_fps: 0.0,
-        }
-    }
-
-    pub fn get_fps(&mut self) -> f32 {
-        let now = SystemTime::now();
-        let elapsed_time = now.duration_since(self.last_timestamp).unwrap();
-        // every 10 seconds, reset the frame count
-        if elapsed_time.as_secs() > 1 {
-            self.last_fps = self.frame_count as f32 / elapsed_time.as_secs() as f32;
-            self.frame_count = 0;
-            self.last_timestamp = now;
-        }
-        self.last_fps
-    }
+pub enum UiUpdate {
+    ClientList(Vec<Uuid>),
 }
 
 pub struct MultiClientApp {
-    client_manager: ClientManager,
-    fps_tracker: HashMap<Uuid, FpsTracker>,
+    frame_rx: broadcast::Receiver<EnrichedFrame>,
     show_frame: bool,
     selected_client: Option<Uuid>,
-    selected_client_handle: Option<ClientHandle>,
+    client_manager: ClientManager,
+    client_manager_handle: ClientManagerHandle,
+    server_task: JoinHandle<()>,
+    ui_update_rx: mpsc::Receiver<UiUpdate>,
+    ui_update_tx: mpsc::Sender<UiUpdate>,
+    client_id_task: JoinHandle<()>,
+    client_ids: Vec<Uuid>,
 }
 
 impl MultiClientApp {
-    pub fn new(client_manager: ClientManager) -> Self {
+    pub fn new(
+        frame_rx: broadcast::Receiver<EnrichedFrame>,
+        client_manager: ClientManager,
+        client_manager_handle: ClientManagerHandle,
+        mut server: Server,
+    ) -> Self {
+        let (ui_update_tx, ui_update_rx) = mpsc::channel::<UiUpdate>(100);
+        let server_task = tokio::spawn(async move {
+            server.start().await.unwrap();
+        });
+
+        let clone_handle = client_manager_handle.clone();
+        let clone_tx = ui_update_tx.clone();
+
+        let client_id_task = tokio::spawn(async move {
+            loop {
+                let client_ids = clone_handle.list_clients().await;
+                debug!("Client IDs to update: {:?}", client_ids);
+                match clone_tx.send(UiUpdate::ClientList(client_ids)).await {
+                    Ok(_) => {
+                        debug!("Client list update sent");
+                    }
+                    Err(e) => {
+                        error!("Error sending client list update: {:?}", e);
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+        });
+
         Self {
-            client_manager,
+            frame_rx,
             show_frame: true,
-            fps_tracker: HashMap::new(),
             selected_client: None,
-            selected_client_handle: None,
+            client_manager,
+            client_manager_handle,
+            server_task,
+            ui_update_rx,
+            ui_update_tx,
+            client_id_task,
+            client_ids: Vec::new(),
         }
     }
 
-    pub fn start_gui(client_manager: ClientManager) {
+    pub fn start_gui() {
         let options = eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
                 .with_inner_size(egui::vec2(1280.0, 720.0))
@@ -60,24 +80,41 @@ impl MultiClientApp {
             ..Default::default()
         };
 
+        let (frame_tx, frame_rx) = broadcast::channel::<EnrichedFrame>(100);
+        let (client_manager, client_manager_handle) = ClientManager::new(frame_tx);
+        let server = Server::new(3344, client_manager_handle.clone());
         let _result = eframe::run_native(
             "PokeBot Visualization - Multi Client View",
             options,
-            Box::new(move |_cc| Ok(Box::new(MultiClientApp::new(client_manager.clone())))),
+            Box::new(move |_cc| {
+                Ok(Box::new(MultiClientApp::new(
+                    frame_rx,
+                    client_manager,
+                    client_manager_handle,
+                    server,
+                )))
+            }),
         );
     }
 }
 
 impl eframe::App for MultiClientApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        match self.ui_update_rx.try_recv() {
+            Ok(UiUpdate::ClientList(client_ids)) => {
+                self.client_ids = client_ids;
+            }
+            Err(MpscTryRecvError::Empty) => {}
+            Err(MpscTryRecvError::Disconnected) => {
+                error!("Client list update receiver disconnected");
+            }
+        };
         // Main UI
         egui::TopBottomPanel::top("Client Selector")
             .resizable(true)
             .show(ctx, |ui| {
                 ui.heading("PokeBot Visualization - Multi Client View");
                 ui.separator();
-
-                let client_ids = self.client_manager.list_clients();
 
                 egui::ComboBox::from_label("Active Client.")
                     .selected_text(
@@ -86,32 +123,36 @@ impl eframe::App for MultiClientApp {
                             .unwrap_or("None".to_string()),
                     )
                     .show_ui(ui, |ui| {
-                        for client_id in client_ids {
+                        for client_id in &self.client_ids {
                             let client_name = format!("Client {}", client_id);
                             ui.selectable_value(
                                 &mut self.selected_client,
-                                Some(client_id),
+                                Some(*client_id),
                                 client_name,
                             );
                         }
                     });
-
-                if let Some(client_id) = self.selected_client {
-                    self.selected_client_handle = self.client_manager.subscribe(&client_id);
-                }
             });
 
         if self.show_frame {
             egui::CentralPanel::default().show(ctx, |ui| {
-                if let Some(selected_client) = &mut self.selected_client_handle {
-                    if let Ok(frame) = selected_client.get_frame() {
-                        ui.heading(format!("Detailed View - Client {}", selected_client.id()));
-                        let fps_tracker = self.fps_tracker.get_mut(&selected_client.id()).unwrap();
-                        let fps = fps_tracker.get_fps();
-                        let mut client_view = ClientView::new(selected_client.id(), frame, fps);
-                        client_view.draw(ui);
-                    } else {
-                        ui.heading("No frame available... waiting for frame from client");
+                if let Some(selected_client) = &self.selected_client {
+                    let frame = self.frame_rx.try_recv();
+                    match frame {
+                        Ok(frame) => {
+                            ui.heading(format!("Detailed View - Client {}", selected_client));
+                            let mut client_view = ClientView::new(*selected_client, frame);
+                            client_view.draw(ui);
+                        }
+                        Err(BroadcastTryRecvError::Empty) => {
+                            // debug!("No frame received from client: {:?}", selected_client);
+                        }
+                        Err(BroadcastTryRecvError::Closed) => {
+                            error!("Client list update receiver disconnected");
+                        }
+                        Err(BroadcastTryRecvError::Lagged(_)) => {
+                            debug!("Frame receiver lagged");
+                        }
                     }
                 } else {
                     ui.heading("No client selected");

@@ -1,113 +1,36 @@
 use crate::{
     error::AppError,
     intake::{
-        client::{Client, client::ClientCommand},
+        client::{
+            Client, ClientSupervisor,
+            supervisor::{ClientEntry, ClientSupervisorCommand},
+        },
         frame::{reader::FrameReader, visitor::FrameDelegatingVisitor, writer::FrameWriter},
     },
-    pipeline::EnrichedFrame,
+    pipeline::{EnrichedFrame, controller::AppController},
 };
 
-use std::collections::HashMap;
 use tokio::{
-    sync::{mpsc, oneshot},
+    sync::{broadcast, mpsc, oneshot},
     task::JoinHandle,
 };
+use tracing::{debug, error};
 use uuid::Uuid;
 
-struct ClientEntry {
-    id: Uuid,
-    client_task: JoinHandle<Result<(), AppError>>,
-    action_channel: mpsc::Sender<ClientCommand>,
-}
-
-enum ClientSupervisorCommand {
-    AddClient {
-        entry: ClientEntry,
-        responder: oneshot::Sender<Uuid>,
-    },
-    RemoveClient {
-        id: Uuid,
-        responder: oneshot::Sender<()>,
-    },
-    ListClients {
-        responder: oneshot::Sender<Vec<Uuid>>,
-    },
-}
-
-struct ClientSupervisor {
-    clients: HashMap<Uuid, ClientEntry>,
-}
-
-impl ClientSupervisor {
-    pub fn new() -> Self {
-        Self {
-            clients: HashMap::new(),
-        }
-    }
-
-    pub fn add_client(&mut self, client_entry: ClientEntry) {
-        self.clients.insert(client_entry.id, client_entry);
-    }
-
-    pub fn remove_client(&mut self, client_id: Uuid) {
-        if let Some(entry) = self.clients.remove(&client_id) {
-            entry.client_task.abort();
-        }
-    }
-
-    pub fn list_clients(&self) -> Vec<Uuid> {
-        self.clients.keys().cloned().collect()
-    }
-
-    pub fn handle_command(&mut self, command: ClientSupervisorCommand) {
-        match command {
-            ClientSupervisorCommand::AddClient { entry, responder } => {
-                let id = entry.id;
-                self.add_client(entry);
-                let _ = responder.send(id);
-            }
-            ClientSupervisorCommand::RemoveClient { id, responder } => {
-                self.remove_client(id);
-                let _ = responder.send(());
-            }
-            ClientSupervisorCommand::ListClients { responder } => {
-                let _ = responder.send(self.list_clients());
-            }
-        }
-    }
-}
-
-pub struct ClientManager {
-    frame_tx: mpsc::Sender<EnrichedFrame>,
+#[derive(Clone)]
+pub struct ClientManagerHandle {
     command_tx: mpsc::Sender<ClientSupervisorCommand>,
-    frame_handler: JoinHandle<()>,
+    frame_tx: mpsc::Sender<EnrichedFrame>,
 }
 
-impl ClientManager {
-    pub fn new() -> Self {
-        // Generate a channel for receiving frames from the client
-        let (frame_tx, mut frame_rx) = mpsc::channel::<EnrichedFrame>(100);
-        let (command_tx, mut command_rx) = mpsc::channel::<ClientSupervisorCommand>(100);
-        let frame_handler = tokio::spawn(async move {
-            let mut supervisor = ClientSupervisor::new();
-            loop {
-                tokio::select! {
-                    Some(command) = command_rx.recv() => {
-                        supervisor.handle_command(command);
-                    }
-                    Some(frame) = frame_rx.recv() => {
-                        // This is where the processing pipeline would be.
-                        // For now, we just print the frame ID.
-                        println!("Received frame: {:?}", frame.id);
-                    }
-                    else => break,
-                }
-            }
-        });
+impl ClientManagerHandle {
+    pub fn new(
+        command_tx: mpsc::Sender<ClientSupervisorCommand>,
+        frame_tx: mpsc::Sender<EnrichedFrame>,
+    ) -> Self {
         Self {
-            frame_tx,
             command_tx,
-            frame_handler,
+            frame_tx,
         }
     }
 
@@ -116,13 +39,19 @@ impl ClientManager {
         reader: Box<dyn FrameReader + Send + Sync>,
         writer: Box<dyn FrameWriter + Send + Sync>,
     ) -> Result<Uuid, AppError> {
+        debug!("Adding client");
         let (action_tx, action_rx) = mpsc::channel(100);
         let visitor = FrameDelegatingVisitor::new(self.frame_tx.clone());
         let mut client = Client::new(reader, writer, Box::new(visitor), action_rx);
         let id = client.id();
         let entry = ClientEntry {
             id,
-            client_task: tokio::spawn(async move { client.start().await }),
+            client_task: tokio::spawn(async move {
+                client
+                    .start()
+                    .await
+                    .map_err(|e| AppError::Client(e.to_string()))
+            }),
             action_channel: action_tx,
         };
 
@@ -157,5 +86,49 @@ impl ClientManager {
             .expect("command channel closed");
 
         response_rx.await.expect("supervisor task died");
+    }
+}
+
+pub struct ClientManager {
+    frame_handler: JoinHandle<()>,
+    client_handler: JoinHandle<()>,
+}
+
+impl ClientManager {
+    pub fn new(broadcast_tx: broadcast::Sender<EnrichedFrame>) -> (Self, ClientManagerHandle) {
+        // Generate a channel for receiving frames from the client
+        let (frame_tx, frame_rx) = mpsc::channel::<EnrichedFrame>(100);
+        let (command_tx, mut command_rx) = mpsc::channel::<ClientSupervisorCommand>(100);
+        let command_tx_clone = command_tx.clone();
+        let frame_handler = tokio::spawn(async move {
+            let mut controller = AppController::new(frame_rx, broadcast_tx, command_tx_clone);
+            if let Err(e) = controller.run().await {
+                error!("Client manager frame handler task died: {:?}", e);
+            }
+        });
+        let client_handler = tokio::spawn(async move {
+            let mut supervisor = ClientSupervisor::new();
+            loop {
+                tokio::select! {
+                    Some(command) = command_rx.recv() => {
+                        supervisor.handle_command(command);
+                    }
+                    else => {
+                        error!("Client manager frame handler task died");
+                        break;
+                    },
+                }
+            }
+        });
+        (
+            Self {
+                frame_handler,
+                client_handler,
+            },
+            ClientManagerHandle {
+                command_tx,
+                frame_tx,
+            },
+        )
     }
 }
