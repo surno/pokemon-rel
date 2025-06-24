@@ -25,6 +25,7 @@ pub struct MultiClientApp {
     ui_update_tx: mpsc::Sender<UiUpdate>,
     client_id_task: JoinHandle<()>,
     client_ids: Vec<Uuid>,
+    cached_frame: Option<EnrichedFrame>,
 }
 
 impl MultiClientApp {
@@ -69,6 +70,7 @@ impl MultiClientApp {
             ui_update_tx,
             client_id_task,
             client_ids: Vec::new(),
+            cached_frame: None,
         }
     }
 
@@ -140,9 +142,7 @@ impl eframe::App for MultiClientApp {
                     let frame = self.frame_rx.try_recv();
                     match frame {
                         Ok(frame) => {
-                            ui.heading(format!("Detailed View - Client {}", selected_client));
-                            let mut client_view = ClientView::new(*selected_client, frame);
-                            client_view.draw(ui);
+                            self.cached_frame = Some(frame);
                         }
                         Err(BroadcastTryRecvError::Empty) => {
                             // debug!("No frame received from client: {:?}", selected_client);
@@ -153,6 +153,11 @@ impl eframe::App for MultiClientApp {
                         Err(BroadcastTryRecvError::Lagged(_)) => {
                             debug!("Frame receiver lagged");
                         }
+                    }
+                    if let Some(frame) = &self.cached_frame {
+                        ui.heading(format!("Detailed View - Client {}", selected_client));
+                        let mut client_view = ClientView::new(*selected_client, frame.clone());
+                        client_view.draw(ui);
                     }
                 } else {
                     ui.heading("No client selected");
