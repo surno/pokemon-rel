@@ -9,6 +9,11 @@ use uuid::Uuid;
 
 const FRAME_LENGTH_BYTES: usize = 4;
 
+pub enum ReadState {
+    WaitingForLength,
+    WaitingForFrame { expected_length: u32 },
+}
+
 pub struct FramedAsyncBufferedReader<T>
 where
     T: AsyncReadExt + Unpin + Sync + Send,
@@ -22,9 +27,7 @@ impl<T: AsyncReadExt + Unpin + Sync + Send> FramedAsyncBufferedReader<T> {
             reader: BufReader::new(stream),
         }
     }
-}
 
-impl<T: AsyncReadExt + Unpin + Sync + Send> FrameReader for FramedAsyncBufferedReader<T> {
     fn read_frame_length<'a>(
         &'a mut self,
     ) -> Pin<Box<dyn Future<Output = Result<u32, FrameError>> + Send + 'a>> {
@@ -96,6 +99,28 @@ impl<T: AsyncReadExt + Unpin + Sync + Send> FrameReader for FramedAsyncBufferedR
                     expected_length as usize,
                     total_bytes_read,
                 )),
+            }
+        })
+    }
+}
+
+impl<T: AsyncReadExt + Unpin + Sync + Send> FrameReader for FramedAsyncBufferedReader<T> {
+    fn read<'a>(
+        &'a mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<Frame, FrameError>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut state = ReadState::WaitingForLength;
+            loop {
+                match &mut state {
+                    ReadState::WaitingForLength => {
+                        state = ReadState::WaitingForFrame {
+                            expected_length: self.read_frame_length().await?,
+                        };
+                    }
+                    ReadState::WaitingForFrame { expected_length } => {
+                        return self.read_frame_data(*expected_length).await;
+                    }
+                }
             }
         })
     }

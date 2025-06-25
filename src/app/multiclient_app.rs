@@ -1,3 +1,4 @@
+use image::DynamicImage;
 use tokio::sync::broadcast::error::TryRecvError as BroadcastTryRecvError;
 use tokio::sync::mpsc::error::TryRecvError as MpscTryRecvError;
 use tokio::sync::{broadcast, mpsc};
@@ -84,6 +85,7 @@ impl MultiClientApp {
 
         let (frame_tx, frame_rx) = broadcast::channel::<EnrichedFrame>(100);
         let (client_manager, client_manager_handle) = ClientManager::new(frame_tx);
+
         let server = Server::new(3344, client_manager_handle.clone());
         let _result = eframe::run_native(
             "PokeBot Visualization - Multi Client View",

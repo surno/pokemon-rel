@@ -64,4 +64,6 @@ pub enum FrameError {
     InvalidPixelsLength(u32, u32, usize, usize),
     #[error("Failed to convert slice to frame: {0}")]
     TryFromSlice(TryFromSliceError),
+    #[error("Failed to send frame: {0}")]
+    Send(String),
 }
