@@ -54,11 +54,6 @@ impl FrameVisitor for FrameDelegatingVisitor {
     }
     fn image(&mut self, image: DynamicImage) -> Result<(), AppError> {
         if self.state == ClientState::Running || self.state == ClientState::Handshake {
-            // send the enriched frame to the subscription
-            debug!(
-                "Visitor sending frame to subscription: {:?}",
-                self.client_id
-            );
             self.subscription
                 .try_send(EnrichedFrame::new(self.client_id, image, self.program))
                 .map_err(|e| AppError::Client(e.to_string()))?;

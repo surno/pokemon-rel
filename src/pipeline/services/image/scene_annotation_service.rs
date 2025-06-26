@@ -15,13 +15,13 @@ use std::{
 use tower::Service;
 
 #[derive(Debug, Clone)]
-pub struct SceneAnnotationBuilder {
+pub struct SceneAnnotationServiceBuilder {
     bloom_filters: HashMap<Scene, Bloom<String>>,
     capacity: usize,
     fp_rate: f64,
 }
 
-impl SceneAnnotationBuilder {
+impl SceneAnnotationServiceBuilder {
     pub fn new(capacity: usize, fp_rate: f64) -> Self {
         Self {
             bloom_filters: HashMap::new(),

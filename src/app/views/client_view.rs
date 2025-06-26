@@ -1,5 +1,6 @@
 use crate::app::views::View;
 use crate::pipeline::types::EnrichedFrame;
+use crate::pipeline::{Scene, State};
 use chrono::Utc;
 use egui::TextureOptions;
 use time::OffsetDateTime;
@@ -31,11 +32,22 @@ impl ClientView {
                 frame.image.width(),
                 frame.image.height()
             ));
-            ui.label(format!(
-                "Pixels: {:?} bytes",
-                frame.image.as_rgb8().unwrap().as_raw().len()
-            ));
+
+            let image = frame.image.to_rgb8();
+            ui.label(format!("Pixels: {:?} bytes", image.as_raw().len()));
             ui.label(format!("Timestamp: {:?}", frame.timestamp));
+            ui.label(format!(
+                "Scene: {:?}",
+                frame
+                    .state
+                    .as_ref()
+                    .unwrap_or(&State {
+                        scene: Scene::Unknown,
+                        player_position: (0.0, 0.0),
+                        pokemon_count: 0,
+                    })
+                    .scene
+            ));
         });
     }
 
@@ -43,7 +55,7 @@ impl ClientView {
         ui.group(|ui| {
             ui.label(format!("Game Image for Client {}", self.client_id));
 
-            let image = frame.image.as_rgb8().unwrap();
+            let image = frame.image.to_rgb8();
 
             let color_image = egui::ColorImage::from_rgb(
                 [image.width() as usize, image.height() as usize],

@@ -1,3 +1,5 @@
+use std::fs;
+
 use crate::{
     error::AppError,
     intake::{
@@ -7,7 +9,12 @@ use crate::{
         },
         frame::{reader::FrameReader, visitor::FrameDelegatingVisitor, writer::FrameWriter},
     },
-    pipeline::{EnrichedFrame, controller::AppController},
+    pipeline::{
+        EnrichedFrame,
+        controller::AppController,
+        services::image::{SceneAnnotationService, SceneAnnotationServiceBuilder},
+        types::{Scene, State},
+    },
 };
 
 use tokio::{
@@ -47,6 +54,7 @@ impl ClientManagerHandle {
         let entry = ClientEntry {
             id,
             client_task: tokio::spawn(async move {
+                debug!("Client {:?} starting thread", id);
                 client
                     .start()
                     .await
@@ -62,6 +70,7 @@ impl ClientManagerHandle {
             .expect("command channel closed");
 
         let client_id = response_rx.await.expect("supervisor task died");
+        debug!("Client {:?} added and started", client_id);
         Ok(client_id)
     }
 
@@ -95,13 +104,29 @@ pub struct ClientManager {
 }
 
 impl ClientManager {
-    pub fn new(broadcast_tx: broadcast::Sender<EnrichedFrame>) -> (Self, ClientManagerHandle) {
+    pub fn new(broadcast_tx: mpsc::Sender<EnrichedFrame>) -> (Self, ClientManagerHandle) {
         // Generate a channel for receiving frames from the client
         let (frame_tx, frame_rx) = mpsc::channel::<EnrichedFrame>(100);
         let (command_tx, mut command_rx) = mpsc::channel::<ClientSupervisorCommand>(100);
         let command_tx_clone = command_tx.clone();
         let frame_handler = tokio::spawn(async move {
-            let mut controller = AppController::new(frame_rx, broadcast_tx, command_tx_clone);
+            // load assets/intro_frame_hashes.txt
+            let intro_frame_hashes = fs::read_to_string(
+                "/Users/tony/Projects/pokemon-shiny/assets/intro_frames_hashes.txt",
+            )
+            .expect("Failed to read intro frame hashes");
+            let intro_frame_hashes = intro_frame_hashes.lines().map(|s| s.to_string()).collect();
+
+            let scene_annotation_service = SceneAnnotationServiceBuilder::new(10, 0.01)
+                .with_scene(Scene::Intro, intro_frame_hashes)
+                .build();
+
+            let mut controller = AppController::new(
+                frame_rx,
+                broadcast_tx,
+                command_tx_clone,
+                scene_annotation_service,
+            );
             if let Err(e) = controller.run().await {
                 error!("Client manager frame handler task died: {:?}", e);
             }

@@ -43,7 +43,6 @@ impl Client {
                 next_message = self.reader.read() => {
                     match next_message {
                         Ok(frame) => {
-                            // debug!("Client {:?} received frame.", self.id);
                             frame.accept(self.visitor.as_mut());
                         }
                         Err(e) => {

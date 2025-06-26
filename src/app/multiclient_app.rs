@@ -6,6 +6,7 @@ use tokio::task::JoinHandle;
 use uuid::Uuid;
 
 use crate::app::views::{View, client_view::ClientView};
+use crate::emulator::EmulatorClient;
 use crate::intake::client::manager::{ClientManager, ClientManagerHandle};
 use crate::network::server::Server;
 use crate::pipeline::EnrichedFrame;
@@ -16,9 +17,10 @@ pub enum UiUpdate {
 }
 
 pub struct MultiClientApp {
-    frame_rx: broadcast::Receiver<EnrichedFrame>,
+    frame_rx: mpsc::Receiver<EnrichedFrame>,
     show_frame: bool,
     selected_client: Option<Uuid>,
+    emulator_client: EmulatorClient,
     client_manager: ClientManager,
     client_manager_handle: ClientManagerHandle,
     server_task: JoinHandle<()>,
@@ -31,9 +33,10 @@ pub struct MultiClientApp {
 
 impl MultiClientApp {
     pub fn new(
-        frame_rx: broadcast::Receiver<EnrichedFrame>,
+        frame_rx: mpsc::Receiver<EnrichedFrame>,
         client_manager: ClientManager,
         client_manager_handle: ClientManagerHandle,
+        emulator_client: EmulatorClient,
         mut server: Server,
     ) -> Self {
         let (ui_update_tx, ui_update_rx) = mpsc::channel::<UiUpdate>(100);
@@ -64,6 +67,7 @@ impl MultiClientApp {
             frame_rx,
             show_frame: true,
             selected_client: None,
+            emulator_client,
             client_manager,
             client_manager_handle,
             server_task,
@@ -83,10 +87,14 @@ impl MultiClientApp {
             ..Default::default()
         };
 
-        let (frame_tx, frame_rx) = broadcast::channel::<EnrichedFrame>(100);
+        let (frame_tx, frame_rx) = mpsc::channel::<EnrichedFrame>(10000);
         let (client_manager, client_manager_handle) = ClientManager::new(frame_tx);
 
         let server = Server::new(3344, client_manager_handle.clone());
+
+        let mut emulator_client = EmulatorClient::new(1, client_manager_handle.clone());
+        emulator_client.start();
+
         let _result = eframe::run_native(
             "PokeBot Visualization - Multi Client View",
             options,
@@ -95,6 +103,7 @@ impl MultiClientApp {
                     frame_rx,
                     client_manager,
                     client_manager_handle,
+                    emulator_client,
                     server,
                 )))
             }),
@@ -146,14 +155,11 @@ impl eframe::App for MultiClientApp {
                         Ok(frame) => {
                             self.cached_frame = Some(frame);
                         }
-                        Err(BroadcastTryRecvError::Empty) => {
+                        Err(MpscTryRecvError::Empty) => {
                             // debug!("No frame received from client: {:?}", selected_client);
                         }
-                        Err(BroadcastTryRecvError::Closed) => {
-                            error!("Client list update receiver disconnected");
-                        }
-                        Err(BroadcastTryRecvError::Lagged(_)) => {
-                            debug!("Frame receiver lagged");
+                        Err(MpscTryRecvError::Disconnected) => {
+                            error!("Frame receiver disconnected");
                         }
                     }
                     if let Some(frame) = &self.cached_frame {
