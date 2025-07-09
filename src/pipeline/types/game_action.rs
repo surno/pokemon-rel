@@ -1,7 +1,19 @@
-use serde::{Deserialize, Serialize};
+#[derive(Clone)]
+pub enum Input {
+    A,
+    B,
+    Up,
+    Down,
+    Left,
+    Right,
+    Start,
+    Select,
+    L,
+    R,
+    X,
+}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct GameAction {
-    pub action: String,
-    pub value: f32,
+    pub action: Input,
 }

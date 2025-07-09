@@ -1,11 +1,14 @@
+use crate::pipeline::Scene;
 use crate::pipeline::services::image::SceneAnnotationService;
 use crate::{
-    error::AppError, intake::client::supervisor::ClientSupervisorCommand, pipeline::EnrichedFrame,
+    error::AppError,
+    intake::client::supervisor::ClientSupervisorCommand,
+    pipeline::types::Input,
+    pipeline::{EnrichedFrame, GameAction},
 };
-use tokio::sync::broadcast;
 use tokio::sync::mpsc;
 use tower::Service;
-use tracing::{debug, error};
+use tracing::debug;
 
 pub struct AppController {
     frame_rx: mpsc::Receiver<EnrichedFrame>,
@@ -34,6 +37,16 @@ impl AppController {
             tokio::select! {
                 Some(frame) = self.frame_rx.recv() => {
                     let scene = self.scene_annotation_service.call(frame).await.unwrap();
+                    if scene.state.as_ref().unwrap().scene == Scene::Intro {
+                        // -- press A
+                        self.action_tx
+                            .send(ClientSupervisorCommand::SendAction {
+                                id: scene.client.clone(),
+                                action: GameAction { action: Input::A },
+                            })
+                            .await
+                            .unwrap();
+                    }
                     self.result_tx.send(scene).await.unwrap();
                 }
                 else => {

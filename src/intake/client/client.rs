@@ -55,7 +55,7 @@ impl Client {
                     match action {
                         Some(action) => match action {
                             ClientCommand::SendAction(action) => {
-                                info!("Client {:?} received action: {:?}", self.id, action);
+                                info!("Client {:?} received action", self.id);
                             }
                         },
                         None => {

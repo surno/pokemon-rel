@@ -117,8 +117,18 @@ impl ClientManager {
             .expect("Failed to read intro frame hashes");
             let intro_frame_hashes = intro_frame_hashes.lines().map(|s| s.to_string()).collect();
 
-            let scene_annotation_service = SceneAnnotationServiceBuilder::new(10, 0.01)
+            let main_menu_frame_hashes = fs::read_to_string(
+                "/Users/tony/Projects/pokemon-shiny/assets/main_menu_frames_hashes.txt",
+            )
+            .expect("Failed to read main menu frame hashes");
+            let main_menu_frame_hashes: Vec<String> = main_menu_frame_hashes
+                .lines()
+                .map(|s| s.to_string())
+                .collect();
+
+            let scene_annotation_service = SceneAnnotationServiceBuilder::new(1000, 0.01)
                 .with_scene(Scene::Intro, intro_frame_hashes)
+                .with_scene(Scene::MainMenu, main_menu_frame_hashes)
                 .build();
 
             let mut controller = AppController::new(

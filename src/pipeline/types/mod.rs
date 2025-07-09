@@ -5,6 +5,7 @@ mod state;
 
 pub use enriched_frame::EnrichedFrame;
 pub use game_action::GameAction;
+pub use game_action::Input;
 pub use rl_prediction::RLPrediction;
 pub use state::Scene;
 pub use state::State;

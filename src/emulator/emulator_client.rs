@@ -5,6 +5,7 @@ use std::{
     sync::Arc,
 };
 
+use desmume_rs::input::{Key, keymask};
 use image::{DynamicImage, RgbImage, RgbaImage};
 use imghash::ImageHasher;
 use tokio::{
@@ -13,6 +14,7 @@ use tokio::{
     task::JoinHandle,
     time::{Duration, Instant, sleep},
 };
+use tracing::Instrument;
 
 use crate::{
     Frame,
@@ -57,9 +59,22 @@ impl EmulatorClient {
                                 "/Users/tony/Projects/pokemon-shiny/POKEMON_B_IRBO01_00.nds",
                                 true,
                             );
+                            desmume.volume_set(0);
                             tracing::info!("Emulator client opened game, with unique id: {}", id);
                             while desmume.is_running() {
+                                // Press the start button
+                                if desmume.get_ticks() % 1000 == 0 {
+                                    tracing::info!("Pressing down");
+                                    desmume.input_mut().keypad_update(keymask(Key::Down));
+                                } else {
+                                    desmume.input_mut().keypad_update(keymask(Key::Start));
+                                }
                                 desmume.cycle();
+
+                                // Release the start button
+                                desmume.input_mut().keypad_update(0);
+                                desmume.cycle();
+
                                 let buffer = desmume.display_buffer_as_rgbx();
 
                                 // -- pixel order is B G R A; convert to R G B

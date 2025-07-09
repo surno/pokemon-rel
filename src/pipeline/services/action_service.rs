@@ -1,5 +1,5 @@
 use crate::error::AppError;
-use crate::pipeline::types::{GameAction, RLPrediction};
+use crate::pipeline::types::{GameAction, Input, RLPrediction};
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -23,8 +23,7 @@ impl Service<RLPrediction> for ActionService {
             // TODO: Implement action execution logic
             // Verify that the action is valid
             Ok(GameAction {
-                action: "move_up".to_string(), // dummy action
-                value: 0.0,
+                action: Input::A, // dummy action
             })
         })
     }

@@ -58,6 +58,7 @@ impl SceneAnnotationService {
 
     fn detect_scene(&self, frame: &DynamicImage) -> Scene {
         let hash = self.hash_frame(frame);
+
         self.bloom_filters
             .iter()
             .find(|(_, filter)| filter.check(&hash))
