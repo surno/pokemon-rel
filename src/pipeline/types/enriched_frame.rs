@@ -2,10 +2,7 @@ use chrono::Utc;
 use image::DynamicImage;
 use uuid::Uuid;
 
-use crate::{
-    intake::frame::frame::Frame,
-    pipeline::types::{GameAction, State},
-};
+use crate::pipeline::types::{GameAction, State};
 
 #[derive(Clone)]
 pub struct EnrichedFrame {

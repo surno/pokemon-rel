@@ -22,7 +22,7 @@ impl<T: AsyncWrite + Unpin + Sync + Send> FramedAsyncBufferedWriter<T> {
 }
 
 impl<T: AsyncWrite + Unpin + Sync + Send> FrameWriter for FramedAsyncBufferedWriter<T> {
-    fn write(&mut self, frame: Frame) -> Result<(), FrameError> {
+    fn write(&mut self, _frame: Frame) -> Result<(), FrameError> {
         Ok(())
     }
 }

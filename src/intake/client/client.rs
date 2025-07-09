@@ -54,7 +54,7 @@ impl Client {
                 action = self.action_channel.recv() => {
                     match action {
                         Some(action) => match action {
-                            ClientCommand::SendAction(action) => {
+                            ClientCommand::SendAction(_action) => {
                                 info!("Client {:?} received action", self.id);
                             }
                         },

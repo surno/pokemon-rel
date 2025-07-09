@@ -10,15 +10,13 @@ use crate::{
         frame::{reader::FrameReader, visitor::FrameDelegatingVisitor, writer::FrameWriter},
     },
     pipeline::{
-        EnrichedFrame,
-        controller::AppController,
-        services::image::{SceneAnnotationService, SceneAnnotationServiceBuilder},
-        types::{Scene, State},
+        EnrichedFrame, controller::AppController, services::image::SceneAnnotationServiceBuilder,
+        types::Scene,
     },
 };
 
 use tokio::{
-    sync::{broadcast, mpsc, oneshot},
+    sync::{mpsc, oneshot},
     task::JoinHandle,
 };
 use tracing::{debug, error};

@@ -1,26 +1,11 @@
-use std::{
-    collections::HashSet,
-    fs::{File, OpenOptions},
-    io::Write,
-    sync::Arc,
-};
-
 use desmume_rs::input::{Key, keymask};
-use image::{DynamicImage, RgbImage, RgbaImage};
-use imghash::ImageHasher;
-use tokio::{
-    io::BufWriter,
-    sync::{broadcast, mpsc},
-    task::JoinHandle,
-    time::{Duration, Instant, sleep},
-};
-use tracing::Instrument;
+use image::{DynamicImage, RgbImage};
+use tokio::{sync::mpsc, task::JoinHandle};
 
 use crate::{
     Frame,
     emulator::{EmulatorReader, EmulatorWriter},
-    intake::{client::manager::ClientManagerHandle, frame::writer::FramedAsyncBufferedWriter},
-    pipeline::GameAction,
+    intake::client::manager::ClientManagerHandle,
 };
 
 pub struct EmulatorClient {
@@ -41,8 +26,8 @@ impl EmulatorClient {
     pub fn start(&mut self) {
         for _ in 0..self.num_clients {
             let (frame_tx, frame_rx) = mpsc::channel::<DynamicImage>(10000);
-            let (action_tx, action_rx) = mpsc::channel::<Frame>(100);
-            let mut client_manager_clone = self.client_manager.clone();
+            let (action_tx, _action_rx) = mpsc::channel::<Frame>(100);
+            let client_manager_clone = self.client_manager.clone();
             self.tasks.push(tokio::spawn(async move {
                 match client_manager_clone
                     .add_client(
@@ -55,7 +40,7 @@ impl EmulatorClient {
                         let emulator_task = tokio::task::spawn_blocking(move || {
                             tracing::info!("Emulator client starting game, with unique id: {}", id);
                             let mut desmume = desmume_rs::DeSmuME::init().unwrap();
-                            let result = desmume.open(
+                            let _result = desmume.open(
                                 "/Users/tony/Projects/pokemon-shiny/POKEMON_B_IRBO01_00.nds",
                                 true,
                             );

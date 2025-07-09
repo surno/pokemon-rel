@@ -1,6 +1,5 @@
 use image::DynamicImage;
 use tokio::sync::mpsc;
-use tracing::debug;
 use uuid::Uuid;
 
 use crate::error::AppError;

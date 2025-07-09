@@ -1,9 +1,7 @@
 use crate::app::views::View;
 use crate::pipeline::types::EnrichedFrame;
 use crate::pipeline::{Scene, State};
-use chrono::Utc;
 use egui::TextureOptions;
-use time::OffsetDateTime;
 use uuid::Uuid;
 pub struct ClientView {
     client_id: Uuid,
