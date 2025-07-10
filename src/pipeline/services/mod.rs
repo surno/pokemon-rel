@@ -1,5 +1,6 @@
 pub mod action_service;
 pub mod image;
+pub mod learning;
 pub mod rl_service;
 
 pub use action_service::ActionService;
