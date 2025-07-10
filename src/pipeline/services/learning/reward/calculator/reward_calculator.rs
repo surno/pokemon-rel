@@ -1,3 +1,4 @@
+use crate::pipeline::services::learning::reward::multi_objective_reward::MultiObjectiveReward;
 use crate::pipeline::types::{EnrichedFrame, GameAction};
 
 pub trait RewardCalculator: Send + Sync {
