@@ -4,7 +4,7 @@ use crate::pipeline::services::learning::experience_collector::Experience;
 use crate::pipeline::services::learning::reward::calculator::RewardCalculator;
 use crate::pipeline::services::learning::reward::processor::reward_processor::RewardProcessor;
 use crate::pipeline::types::{EnrichedFrame, GameAction, RLPrediction};
-use uuid::Uuid as UUid;
+use uuid::Uuid;
 
 pub struct DelayedRewardProcessor {
     frame_buffer: VecDeque<EnrichedFrame>,
@@ -30,7 +30,7 @@ impl DelayedRewardProcessor {
         }
     }
 
-    pub fn calculate_reward(&self, frame: &EnrichedFrame) -> Option<Experience> {
+    pub fn calculate_reward(&self) -> Option<Experience> {
         let previous_frame = &self.frame_buffer[0];
         let current_frame = &self.frame_buffer[1];
         let next_frame = &self.frame_buffer[2];
@@ -45,10 +45,10 @@ impl DelayedRewardProcessor {
             );
 
             return Some(Experience {
-                id: UUid::new_v4(),
+                id: Uuid::new_v4(),
                 reward,
                 action: action.clone(),
-                episode_id: UUid::new_v4(),
+                episode_id: Uuid::new_v4(),
                 prediction: prediction.clone(),
                 frame: current_frame.clone(),
                 next_frame: Some(next_frame.clone()),
@@ -63,7 +63,7 @@ impl RewardProcessor for DelayedRewardProcessor {
         self.insert_frame(frame);
 
         if self.frame_buffer.len() == 3 {
-            self.calculate_reward(frame)
+            self.calculate_reward()
         } else {
             None
         }
