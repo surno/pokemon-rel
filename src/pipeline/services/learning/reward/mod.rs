@@ -1,1 +1,2 @@
-pub mod reward_calculator;
+pub mod calculator;
+pub mod processor;

@@ -8,12 +8,13 @@ use crate::pipeline::types::{EnrichedFrame, GameAction, RLPrediction};
 
 #[derive(Clone)]
 pub struct Experience {
-    id: UUid,
-    frame: EnrichedFrame,
-    action: GameAction,
-    reward: f32,
-    prediction: RLPrediction,
-    episode_id: UUid,
+    pub id: UUid,
+    pub reward: f32,
+    pub action: GameAction,
+    pub episode_id: UUid,
+    pub prediction: RLPrediction,
+    pub next_frame: Option<EnrichedFrame>,
+    pub frame: EnrichedFrame,
 }
 
 pub struct ExperienceBuffer {
