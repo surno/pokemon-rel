@@ -5,7 +5,10 @@ use tokio::sync::mpsc;
 use tracing::info;
 use uuid::Uuid as UUid;
 
-use crate::pipeline::types::{EnrichedFrame, GameAction, RLPrediction};
+use crate::pipeline::{
+    services::learning::reward::multi_objective_reward::MultiObjectiveReward,
+    types::{EnrichedFrame, GameAction, RLPrediction},
+};
 
 #[derive(Clone)]
 pub struct Experience {
@@ -16,6 +19,7 @@ pub struct Experience {
     pub prediction: RLPrediction,
     pub next_frame: Option<EnrichedFrame>,
     pub frame: EnrichedFrame,
+    pub detailed_reward: MultiObjectiveReward,
 }
 
 pub struct ExperienceBuffer {

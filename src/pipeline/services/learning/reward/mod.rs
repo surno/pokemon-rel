@@ -3,6 +3,4 @@ pub mod multi_objective_reward;
 pub mod processor;
 
 pub use calculator::{NavigationReward, RewardCalculator};
-pub use processor::{
-    delayed_reward_processor::DelayedRewardProcessor, reward_processor::RewardProcessor,
-};
+pub use processor::reward_processor::RewardProcessor;
