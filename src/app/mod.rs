@@ -1,3 +1,4 @@
+pub mod controller;
 pub mod multiclient_app;
 pub mod views;
 

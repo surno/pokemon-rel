@@ -3,12 +3,12 @@ use crate::pipeline::types::{EnrichedFrame, GameAction, Scene};
 
 use super::reward_calculator::RewardCalculator;
 
-pub struct NavigationReward {
+pub struct NavigationRewardCalculator {
     previous_scene: Scene,
     steps_in_same_scene: u32,
 }
 
-impl Default for NavigationReward {
+impl Default for NavigationRewardCalculator {
     fn default() -> Self {
         Self {
             previous_scene: Scene::Unknown,
@@ -17,7 +17,7 @@ impl Default for NavigationReward {
     }
 }
 
-impl RewardCalculator for NavigationReward {
+impl RewardCalculator for NavigationRewardCalculator {
     fn calculate_reward(
         &self,
         current_frame: &EnrichedFrame,

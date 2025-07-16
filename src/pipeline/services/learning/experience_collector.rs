@@ -108,6 +108,18 @@ impl ExperienceCollector {
                 self.buffer.average_reward(),
             );
         }
+
+        if self.should_send_training_batch() {
+            let batch = self.buffer.get_training_batch(100);
+            self.training_tx.send(batch).await.unwrap();
+        }
+    }
+
+    fn should_send_training_batch(&self) -> bool {
+        let buffer_size = self.buffer.experiences.len();
+
+        // Rudimentary batching logic, where we send a batch of a few experiences every 16 experiences
+        buffer_size >= 32 && buffer_size % 16 == 0
     }
 
     pub async fn start_new_episode(&mut self) {
