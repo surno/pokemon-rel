@@ -26,7 +26,7 @@ impl EmulatorClient {
     pub fn start(&mut self) {
         for _ in 0..self.num_clients {
             let (frame_tx, frame_rx) = mpsc::channel::<DynamicImage>(10000);
-            let (action_tx, action_rx) = mpsc::channel::<Frame>(100);
+            let (action_tx, mut action_rx) = mpsc::channel::<Frame>(100);
             let client_manager_clone = self.client_manager.clone();
             self.tasks.push(tokio::spawn(async move {
                 match client_manager_clone
@@ -47,6 +47,12 @@ impl EmulatorClient {
                             desmume.volume_set(0);
                             tracing::info!("Emulator client opened game, with unique id: {}", id);
                             while desmume.is_running() {
+                                if action_rx.try_recv().is_ok() {
+                                    tracing::info!(
+                                        "Emulator client received action, with unique id: {}",
+                                        id
+                                    );
+                                }
                                 desmume.cycle();
 
                                 // Release the  button
