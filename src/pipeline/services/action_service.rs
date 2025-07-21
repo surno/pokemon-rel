@@ -1,5 +1,5 @@
 use crate::error::AppError;
-use crate::pipeline::types::{GameAction, Input, RLPrediction};
+use crate::pipeline::types::{EnrichedFrame, GameAction, Input};
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -8,7 +8,7 @@ use tower::Service;
 #[derive(Debug, Clone)]
 pub struct ActionService;
 
-impl Service<RLPrediction> for ActionService {
+impl Service<EnrichedFrame> for ActionService {
     type Response = GameAction;
     type Error = AppError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
@@ -17,7 +17,7 @@ impl Service<RLPrediction> for ActionService {
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, _request: RLPrediction) -> Self::Future {
+    fn call(&mut self, _request: EnrichedFrame) -> Self::Future {
         Box::pin(async move {
             // TODO: Implement action selection logic
             // TODO: Implement action execution logic
