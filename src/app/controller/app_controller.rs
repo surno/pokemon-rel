@@ -4,6 +4,8 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 use tower::Service;
 
 use crate::error::AppError;
+use crate::intake::client::manager::ClientManagerHandle;
+use crate::intake::client::supervisor::ClientSupervisorCommand;
 use crate::pipeline::ActionService;
 use crate::pipeline::services::image::{SceneAnnotationService, SceneAnnotationServiceBuilder};
 use crate::pipeline::services::learning::experience_collector::ExperienceCollector;
@@ -18,14 +20,14 @@ pub struct AppController {
     action_service: ActionService,
     result_tx: Sender<EnrichedFrame>,
     frame_rx: Receiver<EnrichedFrame>,
-    action_tx: Sender<GameAction>,
+    client_manager_handle: ClientManagerHandle,
 }
 
 impl AppController {
     pub fn new(
         result_tx: Sender<EnrichedFrame>,
         frame_rx: Receiver<EnrichedFrame>,
-        action_tx: Sender<GameAction>,
+        client_manager_handle: ClientManagerHandle,
     ) -> Self {
         let scene_annotation_service = SceneAnnotationServiceBuilder::new(1000, 0.01).build();
         let (training_tx, training_rx) = mpsc::channel(1000);
@@ -41,13 +43,14 @@ impl AppController {
             action_service: ActionService,
             result_tx,
             frame_rx,
-            action_tx,
+            client_manager_handle,
         }
     }
 
     pub async fn run(&mut self) -> Result<(), AppError> {
         loop {
             if let Some(frame) = self.frame_rx.recv().await {
+                let id = frame.id;
                 // Annotate the frame with data
                 let enriched_frame = self.scene_annotation_service.call(frame).await?;
 
@@ -56,10 +59,9 @@ impl AppController {
                 let action = self.action_service.call(enriched_frame.clone()).await?;
 
                 // send action to the agent
-                self.action_tx
-                    .send(action)
-                    .await
-                    .map_err(|e| AppError::Client(e.to_string()))?;
+                self.client_manager_handle
+                    .send_command(ClientSupervisorCommand::SendAction { id, action })
+                    .await?;
 
                 // process rewards
 

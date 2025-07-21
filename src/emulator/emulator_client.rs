@@ -47,16 +47,9 @@ impl EmulatorClient {
                             desmume.volume_set(0);
                             tracing::info!("Emulator client opened game, with unique id: {}", id);
                             while desmume.is_running() {
-                                // Press the start button
-                                if desmume.get_ticks() % 1000 == 0 {
-                                    tracing::info!("Pressing down");
-                                    desmume.input_mut().keypad_update(keymask(Key::Down));
-                                } else {
-                                    desmume.input_mut().keypad_update(keymask(Key::Start));
-                                }
                                 desmume.cycle();
 
-                                // Release the start button
+                                // Release the  button
                                 desmume.input_mut().keypad_update(0);
                                 desmume.cycle();
 

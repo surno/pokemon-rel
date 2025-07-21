@@ -39,6 +39,14 @@ impl ClientManagerHandle {
         }
     }
 
+    pub async fn send_command(&self, command: ClientSupervisorCommand) -> Result<(), AppError> {
+        self.command_tx
+            .send(command)
+            .await
+            .map_err(|e| AppError::Client(e.to_string()))?;
+        Ok(())
+    }
+
     pub async fn add_client(
         &self,
         reader: Box<dyn FrameReader + Send + Sync>,
