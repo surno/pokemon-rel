@@ -20,17 +20,17 @@ pub struct AppController {
     action_service: ActionService,
     result_tx: Sender<EnrichedFrame>,
     frame_rx: Receiver<EnrichedFrame>,
-    client_manager_handle: ClientManagerHandle,
+    action_tx: mpsc::Sender<ClientSupervisorCommand>,
 }
 
 impl AppController {
     pub fn new(
         result_tx: Sender<EnrichedFrame>,
         frame_rx: Receiver<EnrichedFrame>,
-        client_manager_handle: ClientManagerHandle,
+        action_tx: mpsc::Sender<ClientSupervisorCommand>,
+        scene_annotation_service: SceneAnnotationService,
     ) -> Self {
-        let scene_annotation_service = SceneAnnotationServiceBuilder::new(1000, 0.01).build();
-        let (training_tx, training_rx) = mpsc::channel(1000);
+        let (training_tx, _training_rx) = mpsc::channel(1000);
         Self {
             scene_annotation_service,
             reward_processor: MultiObjectiveRewardProcessor::new(Box::new(
@@ -43,7 +43,7 @@ impl AppController {
             action_service: ActionService,
             result_tx,
             frame_rx,
-            client_manager_handle,
+            action_tx,
         }
     }
 
@@ -59,9 +59,10 @@ impl AppController {
                 let action = self.action_service.call(enriched_frame.clone()).await?;
 
                 // send action to the agent
-                self.client_manager_handle
-                    .send_command(ClientSupervisorCommand::SendAction { id, action })
-                    .await?;
+                self.action_tx
+                    .send(ClientSupervisorCommand::SendAction { id, action })
+                    .await
+                    .map_err(|e| AppError::Client(e.to_string()))?;
 
                 // process rewards
 

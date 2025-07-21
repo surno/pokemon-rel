@@ -27,7 +27,6 @@ pub struct MultiClientApp {
     ui_update_rx: mpsc::Receiver<UiUpdate>,
     ui_update_tx: mpsc::Sender<UiUpdate>,
     client_id_task: JoinHandle<()>,
-    app_controller_task: JoinHandle<()>,
     client_ids: Vec<Uuid>,
     cached_frame: Option<EnrichedFrame>,
 }
@@ -43,19 +42,6 @@ impl MultiClientApp {
         let (ui_update_tx, ui_update_rx) = mpsc::channel::<UiUpdate>(100);
         let server_task = tokio::spawn(async move {
             server.start().await.expect("Server task died");
-        });
-
-        let (result_tx, result_rx) = mpsc::channel::<EnrichedFrame>(1000);
-
-        let app_client_manager_handle = client_manager_handle.clone();
-
-        let app_controller_task = tokio::spawn(async move {
-            let mut app_controller =
-                AppController::new(result_tx, frame_rx, app_client_manager_handle);
-            app_controller
-                .run()
-                .await
-                .expect("App controller task died");
         });
 
         let clone_handle = client_manager_handle.clone();
@@ -78,7 +64,7 @@ impl MultiClientApp {
         });
 
         Self {
-            frame_rx: result_rx,
+            frame_rx,
             show_frame: true,
             selected_client: None,
             emulator_client,
@@ -88,7 +74,6 @@ impl MultiClientApp {
             ui_update_rx,
             ui_update_tx,
             client_id_task,
-            app_controller_task,
             client_ids: Vec::new(),
             cached_frame: None,
         }

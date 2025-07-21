@@ -1,6 +1,7 @@
 use std::fs;
 
 use crate::{
+    app::controller::app_controller::AppController,
     error::AppError,
     intake::{
         client::{
@@ -9,10 +10,7 @@ use crate::{
         },
         frame::{reader::FrameReader, visitor::FrameDelegatingVisitor, writer::FrameWriter},
     },
-    pipeline::{
-        EnrichedFrame, controller::AppController, services::image::SceneAnnotationServiceBuilder,
-        types::Scene,
-    },
+    pipeline::{EnrichedFrame, services::image::SceneAnnotationServiceBuilder, types::Scene},
 };
 
 use tokio::{
@@ -138,8 +136,8 @@ impl ClientManager {
                 .build();
 
             let mut controller = AppController::new(
-                frame_rx,
                 broadcast_tx,
+                frame_rx,
                 command_tx_clone,
                 scene_annotation_service,
             );

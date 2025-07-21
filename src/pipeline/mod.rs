@@ -1,4 +1,3 @@
-pub mod controller;
 pub mod pipeline_factory;
 pub mod services;
 pub mod types;
