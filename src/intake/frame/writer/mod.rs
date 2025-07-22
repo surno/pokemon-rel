@@ -1,4 +1,4 @@
 pub mod writer;
 
-pub use writer::FrameWriter;
 pub use writer::FramedAsyncBufferedWriter;
+pub use writer::FramedWriter;

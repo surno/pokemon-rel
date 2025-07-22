@@ -1,5 +1,5 @@
 use crate::error::AppError;
-use crate::pipeline::types::{EnrichedFrame, GameAction, Input};
+use crate::pipeline::types::{EnrichedFrame, GameAction};
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -22,9 +22,7 @@ impl Service<EnrichedFrame> for ActionService {
             // TODO: Implement action selection logic
             // TODO: Implement action execution logic
             // Verify that the action is valid
-            Ok(GameAction {
-                action: Input::A, // dummy action
-            })
+            Ok(GameAction::A) // dummy action
         })
     }
 }

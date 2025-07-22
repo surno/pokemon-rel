@@ -1,9 +1,15 @@
-use tokio::io::{AsyncWrite, BufWriter};
+use std::future::Future;
+use std::pin::Pin;
 
-use crate::{error::FrameError, intake::frame::Frame};
+use tokio::io::{AsyncWrite, AsyncWriteExt, BufWriter};
 
-pub trait FrameWriter: Send + Sync {
-    fn write(&mut self, frame: Frame) -> Result<(), FrameError>;
+use crate::{error::FrameError, pipeline::GameAction};
+
+pub trait FramedWriter: Send + Sync {
+    fn write(
+        &mut self,
+        action: GameAction,
+    ) -> Pin<Box<dyn Future<Output = Result<(), FrameError>> + Send + '_>>;
 }
 
 pub struct FramedAsyncBufferedWriter<T>
@@ -21,8 +27,17 @@ impl<T: AsyncWrite + Unpin + Sync + Send> FramedAsyncBufferedWriter<T> {
     }
 }
 
-impl<T: AsyncWrite + Unpin + Sync + Send> FrameWriter for FramedAsyncBufferedWriter<T> {
-    fn write(&mut self, _frame: Frame) -> Result<(), FrameError> {
-        Ok(())
+impl<T: AsyncWrite + Unpin + Sync + Send> FramedWriter for FramedAsyncBufferedWriter<T> {
+    fn write(
+        &mut self,
+        action: GameAction,
+    ) -> Pin<Box<dyn Future<Output = Result<(), FrameError>> + Send + '_>> {
+        Box::pin(async move {
+            self.writer
+                .write_all(&[action as u8])
+                .await
+                .map_err(|e| FrameError::Send(e.to_string()))?;
+            Ok(())
+        })
     }
 }

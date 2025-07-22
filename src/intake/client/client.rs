@@ -1,6 +1,6 @@
 use crate::{
     error::AppError,
-    intake::frame::{reader::FrameReader, visitor::FrameVisitor, writer::FrameWriter},
+    intake::frame::{reader::FrameReader, visitor::FrameVisitor, writer::FramedWriter},
     pipeline::GameAction,
 };
 use tokio::sync::mpsc;
@@ -14,7 +14,7 @@ pub enum ClientCommand {
 pub struct Client {
     id: Uuid,
     reader: Box<dyn FrameReader + Send + Sync>,
-    writer: Box<dyn FrameWriter + Send + Sync>,
+    writer: Box<dyn FramedWriter + Send + Sync>,
     visitor: Box<dyn FrameVisitor + Send + Sync>,
     action_channel: mpsc::Receiver<ClientCommand>,
 }
@@ -22,7 +22,7 @@ pub struct Client {
 impl Client {
     pub fn new(
         reader: Box<dyn FrameReader + Send + Sync>,
-        writer: Box<dyn FrameWriter + Send + Sync>,
+        writer: Box<dyn FramedWriter + Send + Sync>,
         visitor: Box<dyn FrameVisitor + Send + Sync>,
         action_channel: mpsc::Receiver<ClientCommand>,
     ) -> Client {

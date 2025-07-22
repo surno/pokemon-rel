@@ -8,7 +8,7 @@ use crate::{
             Client, ClientSupervisor,
             supervisor::{ClientEntry, ClientSupervisorCommand},
         },
-        frame::{reader::FrameReader, visitor::FrameDelegatingVisitor, writer::FrameWriter},
+        frame::{reader::FrameReader, visitor::FrameDelegatingVisitor, writer::FramedWriter},
     },
     pipeline::{EnrichedFrame, services::image::SceneAnnotationServiceBuilder, types::Scene},
 };
@@ -40,7 +40,7 @@ impl ClientManagerHandle {
     pub async fn add_client(
         &self,
         reader: Box<dyn FrameReader + Send + Sync>,
-        writer: Box<dyn FrameWriter + Send + Sync>,
+        writer: Box<dyn FramedWriter + Send + Sync>,
     ) -> Result<Uuid, AppError> {
         debug!("Adding client");
         let (action_tx, action_rx) = mpsc::channel(100);
