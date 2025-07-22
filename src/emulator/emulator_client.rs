@@ -1,11 +1,10 @@
-use desmume_rs::input::{Key, keymask};
 use image::{DynamicImage, RgbImage};
 use tokio::{sync::mpsc, task::JoinHandle};
 
 use crate::{
-    Frame,
     emulator::{EmulatorReader, EmulatorWriter},
     intake::client::manager::ClientManagerHandle,
+    pipeline::GameAction,
 };
 
 pub struct EmulatorClient {
@@ -26,7 +25,7 @@ impl EmulatorClient {
     pub fn start(&mut self) {
         for _ in 0..self.num_clients {
             let (frame_tx, frame_rx) = mpsc::channel::<DynamicImage>(10000);
-            let (action_tx, mut action_rx) = mpsc::channel::<Frame>(100);
+            let (action_tx, mut action_rx) = mpsc::channel::<GameAction>(100);
             let client_manager_clone = self.client_manager.clone();
             self.tasks.push(tokio::spawn(async move {
                 match client_manager_clone

@@ -21,7 +21,7 @@ impl FramedWriter for EmulatorWriter {
     fn write(
         &mut self,
         action: GameAction,
-    ) -> Pin<Box<dyn Future<Output = Result<(), FrameError>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), FrameError>> + Send + '_>> {
         Box::pin(async move {
             self.frame_tx
                 .send(action)
