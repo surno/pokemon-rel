@@ -1,4 +1,5 @@
 pub mod app;
+pub mod config;
 pub mod emulator;
 pub mod error;
 pub mod intake;

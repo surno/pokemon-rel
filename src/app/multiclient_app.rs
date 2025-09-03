@@ -3,9 +3,10 @@ use tokio::sync::mpsc::error::TryRecvError as MpscTryRecvError;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
-use crate::app::controller::app_controller::AppController;
 use crate::app::views::{View, client_view::ClientView};
+use crate::config::Settings;
 use crate::emulator::EmulatorClient;
+use crate::error::AppError;
 use crate::intake::client::manager::{ClientManager, ClientManagerHandle};
 use crate::intake::client::supervisor::ClientSupervisorCommand;
 use crate::network::server::Server;
@@ -30,6 +31,7 @@ pub struct MultiClientApp {
     client_ids: Vec<Uuid>,
     cached_frame: Option<EnrichedFrame>,
     ai_pipeline_service: AIPipelineService,
+    errors: Vec<AppError>,
 }
 
 impl MultiClientApp {
@@ -79,10 +81,11 @@ impl MultiClientApp {
             client_ids: Vec::new(),
             cached_frame: None,
             ai_pipeline_service,
+            errors: Vec::new(),
         }
     }
 
-    pub fn start_gui() {
+    pub fn start_gui(settings: &Settings) {
         let options = eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
                 .with_inner_size(egui::vec2(1280.0, 720.0))
@@ -97,7 +100,11 @@ impl MultiClientApp {
 
         let server = Server::new(3344, client_manager_handle.clone());
 
-        let mut emulator_client = EmulatorClient::new(1, client_manager_handle.clone());
+        let mut emulator_client = EmulatorClient::new(
+            1,
+            client_manager_handle.clone(),
+            settings.emulator.rom_path.clone(),
+        );
         emulator_client.start();
 
         // Create AI pipeline service
@@ -159,6 +166,17 @@ impl eframe::App for MultiClientApp {
                     });
             });
 
+        egui::TopBottomPanel::bottom("error_panel")
+            .resizable(true)
+            .show(ctx, |ui| {
+                ui.heading("Error Log");
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    for error in self.errors.iter().rev() {
+                        ui.label(format!("[ERROR] {}", error));
+                    }
+                });
+            });
+
         if self.show_frame {
             egui::CentralPanel::default().show(ctx, |ui| {
                 if let Some(selected_client) = &self.selected_client {
@@ -180,9 +198,11 @@ impl eframe::App for MultiClientApp {
                             // debug!("No frame received from client: {:?}", selected_client);
                         }
                         Err(MpscTryRecvError::Disconnected) => {
-                            // Frame receiver disconnected, this can happen during shutdown
-                            // Don't log as error since it's expected behavior
-                            debug!("Frame receiver disconnected");
+                            let err = AppError::Ui(
+                                "Frame receiver disconnected. This can happen during shutdown."
+                                    .to_string(),
+                            );
+                            self.errors.push(err);
                         }
                     }
 

@@ -17,39 +17,36 @@ pub struct Server {
 
 impl Server {
     pub fn new(port: u16, client_manager: ClientManagerHandle) -> Self {
-        Self {
+        Server {
             port,
             client_manager,
         }
     }
 
     pub async fn start(&mut self) -> Result<(), AppError> {
-        info!("Starting network server on port {}", self.port);
-        let listener = TcpListener::bind(format!("0.0.0.0:{}", self.port))
-            .await
-            .map_err(|e| AppError::Bind(e, self.port))?;
+        let addr = format!("127.0.0.1:{}", self.port);
+        let listener = TcpListener::bind(&addr).await.map_err(AppError::Io)?;
+        info!("Server listening on {}", addr);
+
         loop {
-            let result = listener.accept().await;
-            if let Ok((stream, peer)) = result {
-                debug!("New client attempting to connect: {:?}", peer);
-                let client_id = self.handle_client(stream).await?;
-                debug!("Client connected: {:?} for peer {:?}", client_id, peer);
-            } else {
-                error!(
-                    "Error accepting connection: {:?} from unknown peer",
-                    result.err()
-                );
+            match listener.accept().await {
+                Ok((stream, _)) => {
+                    info!("New client connected");
+                    let (reader, writer) = stream.into_split();
+                    let client_manager = self.client_manager.clone();
+                    tokio::spawn(async move {
+                        let reader = FramedAsyncBufferedReader::new(reader);
+                        let writer = FramedAsyncBufferedWriter::new(writer);
+                        client_manager
+                            .add_client(Box::new(reader), Box::new(writer))
+                            .await
+                            .unwrap();
+                    });
+                }
+                Err(e) => {
+                    error!("Failed to accept connection: {}", e);
+                }
             }
         }
-    }
-
-    async fn handle_client(&self, stream: TcpStream) -> Result<Uuid, AppError> {
-        let client_manager = &self.client_manager;
-        let (stream_rx, stream_tx) = stream.into_split();
-        let reader = FramedAsyncBufferedReader::new(stream_rx);
-        let writer = FramedAsyncBufferedWriter::new(stream_tx);
-        client_manager
-            .add_client(Box::new(reader), Box::new(writer))
-            .await
     }
 }

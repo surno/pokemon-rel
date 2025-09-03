@@ -11,14 +11,16 @@ pub struct EmulatorClient {
     tasks: Vec<JoinHandle<()>>,
     client_manager: ClientManagerHandle,
     num_clients: usize,
+    rom_path: String,
 }
 
 impl EmulatorClient {
-    pub fn new(num_clients: usize, client_manager: ClientManagerHandle) -> Self {
+    pub fn new(num_clients: usize, client_manager: ClientManagerHandle, rom_path: String) -> Self {
         Self {
             tasks: vec![],
             client_manager,
             num_clients,
+            rom_path,
         }
     }
 
@@ -27,6 +29,7 @@ impl EmulatorClient {
             let (frame_tx, frame_rx) = mpsc::channel::<DynamicImage>(10000);
             let (action_tx, mut action_rx) = mpsc::channel::<GameAction>(100);
             let client_manager_clone = self.client_manager.clone();
+            let rom_path = self.rom_path.clone();
             self.tasks.push(tokio::spawn(async move {
                 match client_manager_clone
                     .add_client(
@@ -39,9 +42,10 @@ impl EmulatorClient {
                         let emulator_task = tokio::task::spawn_blocking(move || {
                             tracing::info!("Emulator client starting game, with unique id: {}", id);
                             let mut desmume = desmume_rs::DeSmuME::init().unwrap();
-                            let rom_path = "/Users/tony/Projects/pokemon-shiny/POKEMON_B_IRBO01_00.nds";
-                            if let Err(e) = desmume.open(rom_path, true) {
-                                tracing::error!("Failed to open ROM at path '{}': {:?}. Shutting down emulator task.", rom_path, e);
+                            if let Err(e) = desmume.open(&rom_path, true) {
+                                let err_msg = format!("Failed to open ROM at path '{}': {:?}. Shutting down emulator task.", rom_path, e);
+                                tracing::error!("{}", err_msg);
+                                // Here, you could send this error back to the main app to be displayed in the UI
                                 return;
                             };
                             desmume.volume_set(0);

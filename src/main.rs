@@ -1,15 +1,26 @@
-use pokebot_rust::app::multiclient_app::MultiClientApp;
+mod app;
+mod config;
+mod emulator;
+mod error;
+mod intake;
+mod network;
+mod pipeline;
+
+use crate::app::multiclient_app::MultiClientApp;
+use crate::config::Settings;
+use crate::error::AppError;
 use tracing::Level;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // enable debug logging
+fn init_logging() {
     tracing_subscriber::fmt()
         .with_max_level(Level::DEBUG)
         .init();
+}
 
-    // Run GUI on the main thread (required by macOS)
-    MultiClientApp::start_gui();
-
+#[tokio::main]
+async fn main() -> Result<(), AppError> {
+    let settings = Settings::new().map_err(|e| AppError::Config(e.to_string()))?;
+    init_logging();
+    MultiClientApp::start_gui(&settings);
     Ok(())
 }
