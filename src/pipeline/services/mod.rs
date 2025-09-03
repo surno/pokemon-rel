@@ -4,4 +4,5 @@ pub mod learning;
 pub mod rl_service;
 
 pub use action_service::ActionService;
+pub use learning::SmartActionService;
 pub use rl_service::RLService;
