@@ -1,24 +1,23 @@
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::error::TryRecvError as MpscTryRecvError;
-use tokio::task::JoinHandle;
-use uuid::Uuid;
-
-use crate::app::views::{View, client_view::ClientView};
 use crate::config::Settings;
 use crate::emulator::EmulatorClient;
 use crate::error::AppError;
 use crate::intake::client::manager::{ClientManager, ClientManagerHandle};
-use crate::intake::client::supervisor::ClientSupervisorCommand;
 use crate::network::server::Server;
 use crate::pipeline::{EnrichedFrame, GameAction, services::AIPipelineService};
-use tracing::{debug, error};
+use tokio::sync::mpsc::error::TryRecvError as MpscTryRecvError;
+use tokio::sync::{broadcast, mpsc};
+use tokio::task::JoinHandle;
+use tracing::{debug, error, info, warn};
+use uuid::Uuid;
+
+use crate::app::views::{View, client_view::ClientView};
 
 pub enum UiUpdate {
     ClientList(Vec<Uuid>),
 }
 
 pub struct MultiClientApp {
-    frame_rx: mpsc::Receiver<EnrichedFrame>,
+    frame_rx: broadcast::Receiver<EnrichedFrame>,
     show_frame: bool,
     selected_client: Option<Uuid>,
     emulator_client: EmulatorClient,
@@ -36,7 +35,7 @@ pub struct MultiClientApp {
 
 impl MultiClientApp {
     pub fn new(
-        frame_rx: mpsc::Receiver<EnrichedFrame>,
+        frame_rx: broadcast::Receiver<EnrichedFrame>,
         client_manager: ClientManager,
         client_manager_handle: ClientManagerHandle,
         emulator_client: EmulatorClient,
@@ -93,10 +92,10 @@ impl MultiClientApp {
             ..Default::default()
         };
 
-        let (frame_tx, frame_rx) = mpsc::channel::<EnrichedFrame>(10000);
+        let (frame_tx, frame_rx) = broadcast::channel::<EnrichedFrame>(10000);
         let (action_tx, _action_rx) = mpsc::channel::<(Uuid, GameAction)>(1000);
 
-        let (client_manager, client_manager_handle) = ClientManager::new(frame_tx);
+        let (client_manager, client_manager_handle) = ClientManager::new(frame_tx.clone());
 
         let server = Server::new(3344, client_manager_handle.clone());
 
@@ -110,8 +109,27 @@ impl MultiClientApp {
         // Create AI pipeline service
         let ai_pipeline_service = AIPipelineService::new(action_tx);
 
-        // We'll process frames directly in the GUI update loop to avoid channel disconnection issues
-        // The AI pipeline will be called synchronously for each frame
+        // Spawn a task for the AI pipeline to process frames
+        let mut ai_frame_rx = frame_tx.subscribe();
+        let mut ai_pipeline_clone = ai_pipeline_service.clone();
+        tokio::spawn(async move {
+            loop {
+                match ai_frame_rx.recv().await {
+                    Ok(frame) => {
+                        if let Err(e) = ai_pipeline_clone.process_frame(frame).await {
+                            error!("AI pipeline failed to process frame: {}", e);
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        warn!("AI pipeline lagged behind, skipping {} frames", n);
+                    }
+                    Err(broadcast::error::RecvError::Closed) => {
+                        info!("Frame channel closed, AI pipeline shutting down.");
+                        break;
+                    }
+                }
+            }
+        });
 
         let _result = eframe::run_native(
             "PokeBot Visualization - Multi Client View",
@@ -141,6 +159,7 @@ impl eframe::App for MultiClientApp {
                 error!("Client list update receiver disconnected");
             }
         };
+
         // Main UI
         egui::TopBottomPanel::top("Client Selector")
             .resizable(true)
@@ -180,30 +199,21 @@ impl eframe::App for MultiClientApp {
         if self.show_frame {
             egui::CentralPanel::default().show(ctx, |ui| {
                 if let Some(selected_client) = &self.selected_client {
-                    let frame = self.frame_rx.try_recv();
-                    match frame {
+                    match self.frame_rx.try_recv() {
                         Ok(frame) => {
-                            // Store frame for display
-                            self.cached_frame = Some(frame.clone());
-
-                            // Process frame with AI pipeline (synchronously)
-                            if let Err(e) =
-                                self.ai_pipeline_service.process_frame_sync(frame.clone())
-                            {
-                                debug!("AI pipeline processing error: {}", e);
-                            }
+                            self.cached_frame = Some(frame);
                         }
-                        Err(MpscTryRecvError::Empty) => {
-                            // No frames available, this is normal
-                            // debug!("No frame received from client: {:?}", selected_client);
+                        Err(broadcast::error::TryRecvError::Lagged(n)) => {
+                            warn!("UI lagged behind, skipping {} frames", n);
                         }
-                        Err(MpscTryRecvError::Disconnected) => {
+                        Err(broadcast::error::TryRecvError::Closed) => {
                             let err = AppError::Ui(
                                 "Frame receiver disconnected. This can happen during shutdown."
                                     .to_string(),
                             );
                             self.errors.push(err);
                         }
+                        Err(broadcast::error::TryRecvError::Empty) => {}
                     }
 
                     // Display AI statistics

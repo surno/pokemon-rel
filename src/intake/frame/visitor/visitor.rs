@@ -1,5 +1,5 @@
 use image::DynamicImage;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use uuid::Uuid;
 
 use crate::error::AppError;
@@ -19,14 +19,14 @@ enum ClientState {
     Shutdown,
 }
 pub struct FrameDelegatingVisitor {
-    subscription: mpsc::Sender<EnrichedFrame>,
+    subscription: broadcast::Sender<EnrichedFrame>,
     state: ClientState,
     client_id: Uuid,
     program: u16,
 }
 
 impl FrameDelegatingVisitor {
-    pub fn new(subscription: mpsc::Sender<EnrichedFrame>) -> Self {
+    pub fn new(subscription: broadcast::Sender<EnrichedFrame>) -> Self {
         Self {
             subscription,
             state: ClientState::Handshake,
@@ -53,29 +53,19 @@ impl FrameVisitor for FrameDelegatingVisitor {
     }
     fn image(&mut self, image: DynamicImage) -> Result<(), AppError> {
         if self.state == ClientState::Running || self.state == ClientState::Handshake {
-            match self.subscription.try_send(EnrichedFrame::new(
-                self.client_id,
-                image,
-                self.program,
-            )) {
-                Ok(_) => Ok(()),
-                Err(mpsc::error::TrySendError::Full(_)) => {
-                    // Channel is full, skip this frame but don't error
+            if self.subscription.receiver_count() > 0 {
+                if let Err(e) =
+                    self.subscription
+                        .send(EnrichedFrame::new(self.client_id, image, self.program))
+                {
                     tracing::warn!(
-                        "Frame channel full, skipping frame for client {}",
-                        self.client_id
+                        "Failed to broadcast frame for client {}: {}",
+                        self.client_id,
+                        e
                     );
-                    Ok(())
-                }
-                Err(mpsc::error::TrySendError::Closed(_)) => {
-                    // Channel is closed, this is expected when shutting down
-                    tracing::debug!(
-                        "Frame channel closed for client {}, this is normal during shutdown",
-                        self.client_id
-                    );
-                    Ok(())
                 }
             }
+            Ok(())
         } else {
             Err(AppError::Client("Client is not available.".to_string()))
         }
