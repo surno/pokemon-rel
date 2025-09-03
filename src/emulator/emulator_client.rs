@@ -39,10 +39,11 @@ impl EmulatorClient {
                         let emulator_task = tokio::task::spawn_blocking(move || {
                             tracing::info!("Emulator client starting game, with unique id: {}", id);
                             let mut desmume = desmume_rs::DeSmuME::init().unwrap();
-                            let _result = desmume.open(
-                                "/Users/tony/Projects/pokemon-shiny/POKEMON_B_IRBO01_00.nds",
-                                true,
-                            );
+                            let rom_path = "/Users/tony/Projects/pokemon-shiny/POKEMON_B_IRBO01_00.nds";
+                            if let Err(e) = desmume.open(rom_path, true) {
+                                tracing::error!("Failed to open ROM at path '{}': {:?}. Shutting down emulator task.", rom_path, e);
+                                return;
+                            };
                             desmume.volume_set(0);
                             tracing::info!("Emulator client opened game, with unique id: {}", id);
                             while desmume.is_running() {

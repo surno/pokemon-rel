@@ -182,10 +182,7 @@ impl eframe::App for MultiClientApp {
                         Err(MpscTryRecvError::Disconnected) => {
                             // Frame receiver disconnected, this can happen during shutdown
                             // Don't log as error since it's expected behavior
-                            debug!(
-                                "Frame receiver disconnected for client: {:?}",
-                                selected_client
-                            );
+                            debug!("Frame receiver disconnected");
                         }
                     }
 

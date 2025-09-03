@@ -49,15 +49,9 @@ impl Client {
                             }
                         }
                         Err(e) => {
-                            // Log the error but don't crash the client immediately
-                            // Only return error for critical failures
-                            if e.to_string().contains("Channel closed") {
-                                tracing::debug!("Client {:?} frame channel closed, this is normal during shutdown", self.id);
-                                // Don't return error for channel closure, just continue
-                            } else {
-                                tracing::error!("Client pipeline for {:?} failed to read frame: {:?}", self.id, e);
-                                return Err(AppError::Client(e.to_string()));
-                            }
+                            // This is an expected error when the connection closes.
+                            tracing::debug!("Client reader for {:?} disconnected: {:?}. Shutting down client.", self.id, e);
+                            break;
                         }
                     }
                 }
@@ -69,12 +63,14 @@ impl Client {
                             }
                         },
                         None => {
-                            error!("Client {:?} action channel closed", self.id);
+                            info!("Client {:?} action channel closed. Shutting down.", self.id);
+                            break;
                         }
                     }
                 }
             }
         }
+        Ok(())
     }
 
     pub fn id(&self) -> Uuid {
