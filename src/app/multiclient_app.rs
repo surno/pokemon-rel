@@ -9,7 +9,7 @@ use crate::emulator::EmulatorClient;
 use crate::intake::client::manager::{ClientManager, ClientManagerHandle};
 use crate::intake::client::supervisor::ClientSupervisorCommand;
 use crate::network::server::Server;
-use crate::pipeline::{EnrichedFrame, GameAction};
+use crate::pipeline::{EnrichedFrame, GameAction, services::AIPipelineService};
 use tracing::{debug, error};
 
 pub enum UiUpdate {
@@ -29,6 +29,7 @@ pub struct MultiClientApp {
     client_id_task: JoinHandle<()>,
     client_ids: Vec<Uuid>,
     cached_frame: Option<EnrichedFrame>,
+    ai_pipeline_service: AIPipelineService,
 }
 
 impl MultiClientApp {
@@ -38,6 +39,7 @@ impl MultiClientApp {
         client_manager_handle: ClientManagerHandle,
         emulator_client: EmulatorClient,
         mut server: Server,
+        ai_pipeline_service: AIPipelineService,
     ) -> Self {
         let (ui_update_tx, ui_update_rx) = mpsc::channel::<UiUpdate>(100);
         let server_task = tokio::spawn(async move {
@@ -76,6 +78,7 @@ impl MultiClientApp {
             client_id_task,
             client_ids: Vec::new(),
             cached_frame: None,
+            ai_pipeline_service,
         }
     }
 
@@ -88,12 +91,20 @@ impl MultiClientApp {
         };
 
         let (frame_tx, frame_rx) = mpsc::channel::<EnrichedFrame>(10000);
+        let (action_tx, _action_rx) = mpsc::channel::<(Uuid, GameAction)>(1000);
+
         let (client_manager, client_manager_handle) = ClientManager::new(frame_tx);
 
         let server = Server::new(3344, client_manager_handle.clone());
 
         let mut emulator_client = EmulatorClient::new(1, client_manager_handle.clone());
         emulator_client.start();
+
+        // Create AI pipeline service
+        let ai_pipeline_service = AIPipelineService::new(action_tx);
+
+        // We'll process frames directly in the GUI update loop to avoid channel disconnection issues
+        // The AI pipeline will be called synchronously for each frame
 
         let _result = eframe::run_native(
             "PokeBot Visualization - Multi Client View",
@@ -105,6 +116,7 @@ impl MultiClientApp {
                     client_manager_handle,
                     emulator_client,
                     server,
+                    ai_pipeline_service,
                 )))
             }),
         );
@@ -153,15 +165,52 @@ impl eframe::App for MultiClientApp {
                     let frame = self.frame_rx.try_recv();
                     match frame {
                         Ok(frame) => {
-                            self.cached_frame = Some(frame);
+                            // Store frame for display
+                            self.cached_frame = Some(frame.clone());
+
+                            // Process frame with AI pipeline (synchronously)
+                            if let Err(e) =
+                                self.ai_pipeline_service.process_frame_sync(frame.clone())
+                            {
+                                debug!("AI pipeline processing error: {}", e);
+                            }
                         }
                         Err(MpscTryRecvError::Empty) => {
+                            // No frames available, this is normal
                             // debug!("No frame received from client: {:?}", selected_client);
                         }
                         Err(MpscTryRecvError::Disconnected) => {
-                            error!("Frame receiver disconnected");
+                            // Frame receiver disconnected, this can happen during shutdown
+                            // Don't log as error since it's expected behavior
+                            debug!(
+                                "Frame receiver disconnected for client: {:?}",
+                                selected_client
+                            );
                         }
                     }
+
+                    // Display AI statistics
+                    ui.heading("AI Pipeline Statistics");
+                    let stats = self.ai_pipeline_service.get_stats();
+                    ui.label(format!(
+                        "Frames Processed: {}",
+                        stats.total_frames_processed
+                    ));
+                    ui.label(format!("Decisions Made: {}", stats.total_decisions_made));
+                    ui.label(format!(
+                        "Average Confidence: {:.2}",
+                        stats.average_confidence
+                    ));
+
+                    if let Some(last_time) = stats.last_decision_time {
+                        ui.label(format!(
+                            "Last Decision: {:?} ago",
+                            std::time::Instant::now().duration_since(last_time)
+                        ));
+                    }
+
+                    ui.separator();
+
                     if let Some(frame) = &self.cached_frame {
                         ui.heading(format!("Detailed View - Client {}", selected_client));
                         let mut client_view = ClientView::new(*selected_client, frame.clone());

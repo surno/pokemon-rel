@@ -43,11 +43,21 @@ impl Client {
                 next_message = self.reader.read() => {
                     match next_message {
                         Ok(frame) => {
-                            frame.accept(self.visitor.as_mut());
+                            if let Err(e) = frame.accept(self.visitor.as_mut()) {
+                                // Log the error but don't crash the client
+                                tracing::warn!("Frame processing error for client {:?}: {:?}", self.id, e);
+                            }
                         }
                         Err(e) => {
-                            error!("Client pipeline for {:?} failed to read frame: {:?}", self.id, e);
-                            return Err(AppError::Client(e.to_string()));
+                            // Log the error but don't crash the client immediately
+                            // Only return error for critical failures
+                            if e.to_string().contains("Channel closed") {
+                                tracing::debug!("Client {:?} frame channel closed, this is normal during shutdown", self.id);
+                                // Don't return error for channel closure, just continue
+                            } else {
+                                tracing::error!("Client pipeline for {:?} failed to read frame: {:?}", self.id, e);
+                                return Err(AppError::Client(e.to_string()));
+                            }
                         }
                     }
                 }

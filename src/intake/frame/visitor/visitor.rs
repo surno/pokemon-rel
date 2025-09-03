@@ -53,10 +53,29 @@ impl FrameVisitor for FrameDelegatingVisitor {
     }
     fn image(&mut self, image: DynamicImage) -> Result<(), AppError> {
         if self.state == ClientState::Running || self.state == ClientState::Handshake {
-            self.subscription
-                .try_send(EnrichedFrame::new(self.client_id, image, self.program))
-                .map_err(|e| AppError::Client(e.to_string()))?;
-            Ok(())
+            match self.subscription.try_send(EnrichedFrame::new(
+                self.client_id,
+                image,
+                self.program,
+            )) {
+                Ok(_) => Ok(()),
+                Err(mpsc::error::TrySendError::Full(_)) => {
+                    // Channel is full, skip this frame but don't error
+                    tracing::warn!(
+                        "Frame channel full, skipping frame for client {}",
+                        self.client_id
+                    );
+                    Ok(())
+                }
+                Err(mpsc::error::TrySendError::Closed(_)) => {
+                    // Channel is closed, this is expected when shutting down
+                    tracing::debug!(
+                        "Frame channel closed for client {}, this is normal during shutdown",
+                        self.client_id
+                    );
+                    Ok(())
+                }
+            }
         } else {
             Err(AppError::Client("Client is not available.".to_string()))
         }

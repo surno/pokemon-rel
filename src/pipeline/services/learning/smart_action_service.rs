@@ -249,7 +249,7 @@ impl SmartActionService {
         self.scene_rules.insert(Scene::Unknown, unknown_rules);
     }
 
-    fn analyze_situation(&self, frame: &EnrichedFrame) -> GameSituation {
+    pub fn analyze_situation(&self, frame: &EnrichedFrame) -> GameSituation {
         // Analyze the current game situation based on the frame
         let scene = frame
             .state
@@ -441,7 +441,7 @@ impl SmartActionService {
         }
     }
 
-    fn make_decision(&mut self, situation: &GameSituation) -> ActionDecision {
+    pub fn make_decision(&mut self, situation: &GameSituation) -> ActionDecision {
         // First, try to apply learned rules from experience
         if let Some(learned_action) = self.get_learned_action(situation) {
             return learned_action;
@@ -536,7 +536,7 @@ impl SmartActionService {
         }
     }
 
-    fn record_experience(
+    pub fn record_experience(
         &mut self,
         situation: GameSituation,
         action: GameAction,
