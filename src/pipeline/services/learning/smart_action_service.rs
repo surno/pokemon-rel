@@ -568,3 +568,161 @@ impl Service<EnrichedFrame> for SmartActionService {
         Box::pin(async move { Ok(decision) })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pipeline::types::State;
+    use image::DynamicImage;
+    use uuid::Uuid;
+
+    fn create_mock_frame(scene: Scene, has_text: bool, has_menu: bool) -> EnrichedFrame {
+        // Create a simple mock image (1x1 pixel)
+        let image = DynamicImage::new_rgb8(1, 1);
+
+        EnrichedFrame {
+            client: Uuid::new_v4(),
+            image,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            program: 1,
+            id: Uuid::new_v4(),
+            state: Some(State {
+                scene,
+                player_position: (0.0, 0.0),
+                pokemon_count: 0,
+            }),
+            action: None,
+            color_analysis: None,
+        }
+    }
+
+    #[test]
+    fn test_smart_action_service_creation() {
+        let service = SmartActionService::new();
+        assert_eq!(service.action_history.len(), 0);
+    }
+
+    #[test]
+    fn test_basic_rules_setup() {
+        let service = SmartActionService::new();
+
+        // Check that rules were set up for different scenes
+        assert!(service.scene_rules.contains_key(&Scene::MainMenu));
+        assert!(service.scene_rules.contains_key(&Scene::Intro));
+        assert!(service.scene_rules.contains_key(&Scene::Unknown));
+    }
+
+    #[test]
+    fn test_main_menu_decision() {
+        let mut service = SmartActionService::new();
+
+        // Create a frame that looks like main menu with buttons
+        let frame = create_mock_frame(Scene::MainMenu, false, true);
+        let situation = service.analyze_situation(&frame);
+
+        // The mock frame won't trigger image analysis, so we'll test the scene-based logic
+        assert_eq!(situation.scene, Scene::MainMenu);
+
+        // Make decision - since no buttons are detected, it should use the rule for no buttons
+        let decision = service.make_decision(&situation);
+        // The rule for MainMenu with no buttons should match and return Start
+        assert_eq!(decision.action, GameAction::Start);
+        assert_eq!(decision.confidence, 0.7);
+        assert!(decision.reasoning.contains("Start to begin game"));
+    }
+
+    #[test]
+    fn test_intro_scene_decision() {
+        let mut service = SmartActionService::new();
+
+        // Create a frame that looks like intro
+        let frame = create_mock_frame(Scene::Intro, true, false);
+        let situation = service.analyze_situation(&frame);
+
+        // The mock frame won't trigger image analysis, so we'll test the scene-based logic
+        assert_eq!(situation.scene, Scene::Intro);
+        assert_eq!(situation.urgency_level, UrgencyLevel::Low);
+
+        // Make decision - should use scene rules
+        let decision = service.make_decision(&situation);
+        assert_eq!(decision.action, GameAction::A);
+        assert_eq!(decision.confidence, 0.7);
+        assert!(decision.reasoning.contains("intro"));
+    }
+
+    #[test]
+    fn test_learning_from_experience() {
+        let mut service = SmartActionService::new();
+
+        // Create initial situation
+        let initial_frame = create_mock_frame(Scene::Unknown, false, false);
+        let initial_situation = service.analyze_situation(&initial_frame);
+
+        // Record a successful experience
+        service.record_experience(initial_situation.clone(), GameAction::Up, true);
+
+        // Check that experience was recorded
+        assert_eq!(service.action_history.len(), 1);
+
+        // Get learning stats
+        let stats = service.get_learning_stats();
+        assert_eq!(stats.total_actions, 1);
+        assert_eq!(stats.successful_actions, 1);
+        assert_eq!(stats.success_rate, 1.0);
+    }
+
+    #[test]
+    fn test_feedback_loop() {
+        let mut service = SmartActionService::new();
+
+        // Create a sequence of frames
+        let frames = vec![
+            create_mock_frame(Scene::Intro, true, false), // Frame 1: Intro with text
+            create_mock_frame(Scene::MainMenu, false, true), // Frame 2: Main menu
+            create_mock_frame(Scene::Unknown, false, false), // Frame 3: Unknown scene
+        ];
+
+        // Process frames with feedback
+        let decisions = service.demonstrate_learning_loop(frames);
+
+        // Should have made 3 decisions
+        assert_eq!(decisions.len(), 3);
+
+        // First decision should be for intro (using rules)
+        assert_eq!(decisions[0].action, GameAction::A);
+        assert!(decisions[0].reasoning.contains("intro"));
+
+        // Second decision should be for main menu (using rules since no buttons detected)
+        assert_eq!(decisions[1].action, GameAction::Start);
+        assert!(decisions[1].reasoning.contains("Start to begin game"));
+
+        // Third decision should use heuristics
+        assert_eq!(decisions[2].action, GameAction::A);
+        assert!(decisions[2].reasoning.contains("unknown"));
+
+        // Check that learning occurred
+        let stats = service.get_learning_stats();
+        assert_eq!(stats.total_actions, 2); // 2 actions recorded (first frame has no previous action)
+        assert!(stats.success_rate > 0.0);
+    }
+
+    #[test]
+    fn test_urgency_levels() {
+        let mut service = SmartActionService::new();
+
+        // Test main menu urgency
+        let menu_frame = create_mock_frame(Scene::MainMenu, false, true);
+        let menu_situation = service.analyze_situation(&menu_frame);
+        assert_eq!(menu_situation.urgency_level, UrgencyLevel::Low); // No menu detected in mock
+
+        // Test intro urgency
+        let intro_frame = create_mock_frame(Scene::Intro, false, false);
+        let intro_situation = service.analyze_situation(&intro_frame);
+        assert_eq!(intro_situation.urgency_level, UrgencyLevel::Low);
+
+        // Test unknown scene with text urgency
+        let unknown_frame = create_mock_frame(Scene::Unknown, true, false);
+        let unknown_situation = service.analyze_situation(&unknown_frame);
+        assert_eq!(unknown_situation.urgency_level, UrgencyLevel::Low); // No text detected in mock
+    }
+}
