@@ -5,7 +5,10 @@ use crate::intake::client::manager::{ClientManager, ClientManagerHandle};
 use crate::network::server::Server;
 use crate::pipeline::{
     EnrichedFrame, GameAction,
-    services::{AIPipelineService, image::scene_annotation_service::SceneAnnotationService},
+    services::{
+        AIPipelineFactory, image::scene_annotation_service::SceneAnnotationService,
+        orchestration::UIPipelineAdapter,
+    },
 };
 use tokio::sync::mpsc::error::TryRecvError as MpscTryRecvError;
 use tokio::sync::{broadcast, mpsc};
@@ -32,7 +35,7 @@ pub struct MultiClientApp {
     client_id_task: JoinHandle<()>,
     client_ids: Vec<Uuid>,
     cached_frame: Option<EnrichedFrame>,
-    ai_pipeline_service: AIPipelineService,
+    ai_pipeline_adapter: UIPipelineAdapter,
     scene_annotation_service: SceneAnnotationService,
     errors: Vec<AppError>,
 }
@@ -44,7 +47,7 @@ impl MultiClientApp {
         client_manager_handle: ClientManagerHandle,
         emulator_client: EmulatorClient,
         mut server: Server,
-        ai_pipeline_service: AIPipelineService,
+        ai_pipeline_adapter: UIPipelineAdapter,
     ) -> Self {
         let (ui_update_tx, ui_update_rx) = mpsc::channel::<UiUpdate>(100);
         let server_task = tokio::spawn(async move {
@@ -83,7 +86,7 @@ impl MultiClientApp {
             client_id_task,
             client_ids: Vec::new(),
             cached_frame: None,
-            ai_pipeline_service,
+            ai_pipeline_adapter,
             scene_annotation_service: SceneAnnotationService::new(()),
             errors: Vec::new(),
         }
@@ -111,8 +114,10 @@ impl MultiClientApp {
         );
         emulator_client.start();
 
-        // Create AI pipeline service
-        let ai_pipeline_service = AIPipelineService::new(action_tx);
+        // Create AI pipeline using new architecture
+        let mut ai_pipeline = AIPipelineFactory::create_default_pipeline(action_tx.clone())
+            .expect("Failed to create AI pipeline");
+        let ai_pipeline_adapter = ai_pipeline.get_ui_adapter();
 
         // Spawn a task to route actions from the AI to the correct client
         let client_manager_handle_clone = client_manager_handle.clone();
@@ -126,12 +131,11 @@ impl MultiClientApp {
 
         // Spawn a task for the AI pipeline to process frames
         let mut ai_frame_rx = frame_tx.subscribe();
-        let mut ai_pipeline_clone = ai_pipeline_service.clone();
         tokio::spawn(async move {
             loop {
                 match ai_frame_rx.recv().await {
                     Ok(frame) => {
-                        if let Err(e) = ai_pipeline_clone.process_frame(frame).await {
+                        if let Err(e) = ai_pipeline.process_frame(frame).await {
                             error!("AI pipeline failed to process frame: {}", e);
                         }
                     }
@@ -156,7 +160,7 @@ impl MultiClientApp {
                     client_manager_handle,
                     emulator_client,
                     server,
-                    ai_pipeline_service,
+                    ai_pipeline_adapter,
                 )))
             }),
         );
@@ -204,7 +208,7 @@ impl eframe::App for MultiClientApp {
                 ui.add_space(4.0);
 
                 // Compact AI status row
-                let dbg = self.ai_pipeline_service.get_debug_snapshot();
+                let dbg = self.ai_pipeline_adapter.get_debug_snapshot();
                 ui.horizontal_wrapped(|ui| {
                     ui.strong("AI Status:");
 
@@ -277,7 +281,7 @@ impl eframe::App for MultiClientApp {
 
                         // Display AI statistics (shared snapshot)
                         ui.heading("AI Pipeline Statistics");
-                        let stats = self.ai_pipeline_service.get_stats_shared();
+                        let stats = self.ai_pipeline_adapter.get_stats_shared();
                         ui.label(format!(
                             "Frames Processed: {}",
                             stats.total_frames_processed
@@ -365,7 +369,7 @@ impl eframe::App for MultiClientApp {
                         // Recent Decisions (compact)
                         ui.heading("Recent Decisions");
                         if let Some(cid) = self.selected_client {
-                            let list = self.ai_pipeline_service.get_client_decisions(&cid);
+                            let list = self.ai_pipeline_adapter.get_client_decisions(&cid);
                             let shown = list.iter().rev().take(8);
                             egui::Grid::new("recent_decisions_grid")
                                 .striped(true)

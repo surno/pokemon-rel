@@ -1,7 +1,9 @@
-use super::{FrameContext, MetricsCollector, ProcessingPipeline};
+use super::{FrameContext, MetricsCollector, ProcessingPipeline, UIPipelineAdapter};
 use crate::error::AppError;
+use crate::pipeline::services::learning::smart_action_service::ActionDecision;
 use crate::pipeline::{EnrichedFrame, GameAction};
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
@@ -13,6 +15,7 @@ pub struct AIPipelineOrchestrator {
     pipeline: ProcessingPipeline,
     action_transmitter: ActionTransmitter,
     metrics_collector: Arc<tokio::sync::Mutex<MetricsCollector>>,
+    ui_adapter: UIPipelineAdapter,
 }
 
 impl AIPipelineOrchestrator {
@@ -21,10 +24,26 @@ impl AIPipelineOrchestrator {
         action_tx: mpsc::Sender<(Uuid, GameAction)>,
         metrics_collector: MetricsCollector,
     ) -> Self {
+        // Create shared state for UI adapter
+        let performance_stats = Arc::new(Mutex::new(
+            crate::pipeline::services::orchestration::metrics::PerformanceStats::default(),
+        ));
+        let decision_history = Arc::new(Mutex::new(HashMap::<Uuid, Vec<ActionDecision>>::new()));
+        let debug_info = Arc::new(Mutex::new(
+            crate::pipeline::services::orchestration::metrics::DebugInfo::default(),
+        ));
+
+        let ui_adapter = UIPipelineAdapter::new(
+            Arc::clone(&performance_stats),
+            Arc::clone(&decision_history),
+            Arc::clone(&debug_info),
+        );
+
         Self {
             pipeline,
             action_transmitter: ActionTransmitter::new(action_tx),
             metrics_collector: Arc::new(tokio::sync::Mutex::new(metrics_collector)),
+            ui_adapter,
         }
     }
 
@@ -96,6 +115,11 @@ impl AIPipelineOrchestrator {
 
     pub async fn get_metrics_collector(&self) -> tokio::sync::MutexGuard<'_, MetricsCollector> {
         self.metrics_collector.lock().await
+    }
+
+    /// Get UI adapter for backward compatibility with existing UI code
+    pub fn get_ui_adapter(&self) -> UIPipelineAdapter {
+        self.ui_adapter.clone()
     }
 }
 
