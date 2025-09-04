@@ -80,6 +80,39 @@ pub struct AIStats {
     pub frames_per_sec: f32,
     pub decisions_per_sec: f32,
     pub total_actions_sent: usize,
+    // Timing metrics for bottleneck detection
+    pub timing: TimingStats,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct TimingStats {
+    // EWMA (exponentially weighted moving average) timings in microseconds
+    pub analyze_situation_us: f32,
+    pub hash_distance_us: f32,
+    pub policy_inference_us: f32,
+    pub macro_selection_us: f32,
+    pub reward_processing_us: f32,
+    pub experience_collection_us: f32,
+    pub action_send_us: f32,
+    pub total_frame_us: f32,
+    // Last frame timings for debugging spikes
+    pub last_analyze_situation_us: u64,
+    pub last_hash_distance_us: u64,
+    pub last_policy_inference_us: u64,
+    pub last_macro_selection_us: u64,
+    pub last_reward_processing_us: u64,
+    pub last_experience_collection_us: u64,
+    pub last_action_send_us: u64,
+    pub last_total_frame_us: u64,
+    // Max timings to catch worst-case performance
+    pub max_analyze_situation_us: u64,
+    pub max_hash_distance_us: u64,
+    pub max_policy_inference_us: u64,
+    pub max_macro_selection_us: u64,
+    pub max_reward_processing_us: u64,
+    pub max_experience_collection_us: u64,
+    pub max_action_send_us: u64,
+    pub max_total_frame_us: u64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -117,6 +150,22 @@ impl AIPipelineService {
             8 => GameAction::L,
             9 => GameAction::R,
             _ => GameAction::X,
+        }
+    }
+
+    fn game_action_to_index(action: &GameAction) -> usize {
+        match action {
+            GameAction::A => 0,
+            GameAction::B => 1,
+            GameAction::Up => 2,
+            GameAction::Down => 3,
+            GameAction::Left => 4,
+            GameAction::Right => 5,
+            GameAction::Start => 6,
+            GameAction::Select => 7,
+            GameAction::L => 8,
+            GameAction::R => 9,
+            GameAction::X => 10,
         }
     }
 
@@ -253,6 +302,7 @@ impl AIPipelineService {
             frames_per_sec: 0.0,
             decisions_per_sec: 0.0,
             total_actions_sent: 0,
+            timing: TimingStats::default(),
         };
         let (training_tx, _training_rx) = mpsc::channel(1000);
         let this = Self {
@@ -270,7 +320,7 @@ impl AIPipelineService {
             fps_frames: 0,
             fps_decisions: 0,
             intro_scene_since: HashMap::new(),
-            rl_service: RLService,
+            rl_service: RLService::new(),
             reward_processor: Arc::new(Mutex::new(MultiObjectiveRewardProcessor::new(Box::new(
                 NavigationRewardCalculator::default(),
             )))),
@@ -295,7 +345,7 @@ impl AIPipelineService {
     }
 
     pub async fn process_frame(&mut self, frame: EnrichedFrame) -> Result<(), AppError> {
-        let start_time = Instant::now();
+        let frame_start_time = Instant::now();
         let client_id = frame.client;
 
         self.stats.total_frames_processed += 1;
@@ -303,12 +353,21 @@ impl AIPipelineService {
         self.fps_frames += 1;
 
         // First, analyze the situation (brief lock)
+        let analyze_start = Instant::now();
         let current_situation = {
             let smart_service = self.smart_action_service.lock().unwrap();
             smart_service.analyze_situation(&frame)
         };
+        let analyze_duration = analyze_start.elapsed().as_micros() as u64;
+        Self::update_timing_stat(
+            &mut self.stats.timing.analyze_situation_us,
+            &mut self.stats.timing.last_analyze_situation_us,
+            &mut self.stats.timing.max_analyze_situation_us,
+            analyze_duration,
+        );
 
         // Compute image-change signal outside the lock; reuse cached downscaled last image
+        let hash_start = Instant::now();
         if let Some((last_action, last_situation, last_small)) =
             self.last_action_and_situation.get(&client_id)
         {
@@ -363,12 +422,19 @@ impl AIPipelineService {
                 client_id, last_action, was_successful, image_changed
             );
         }
+        let hash_duration = hash_start.elapsed().as_micros() as u64;
+        Self::update_timing_stat(
+            &mut self.stats.timing.hash_distance_us,
+            &mut self.stats.timing.last_hash_distance_us,
+            &mut self.stats.timing.max_hash_distance_us,
+            hash_duration,
+        );
 
         // Track Intro scene persistence window
         if current_situation.scene == crate::pipeline::types::Scene::Intro {
             self.intro_scene_since
                 .entry(client_id)
-                .or_insert(start_time);
+                .or_insert(frame_start_time);
         } else {
             self.intro_scene_since.remove(&client_id);
         }
@@ -392,8 +458,16 @@ impl AIPipelineService {
         }
 
         // PPO: get policy prediction for current frame and sample an action
+        let policy_start = Instant::now();
         let prediction = self.rl_service.call(frame.clone()).await?;
         let policy_action = Self::sample_action_from_prediction(&prediction);
+        let policy_duration = policy_start.elapsed().as_micros() as u64;
+        Self::update_timing_stat(
+            &mut self.stats.timing.policy_inference_us,
+            &mut self.stats.timing.last_policy_inference_us,
+            &mut self.stats.timing.max_policy_inference_us,
+            policy_duration,
+        );
 
         // Choose macro using either policy-guided mapping or tabular Q
         let selection_situation = current_situation.clone();
@@ -411,20 +485,53 @@ impl AIPipelineService {
                 }
             })
             .unwrap_or(false);
+        let macro_start = Instant::now();
         let action_to_send = self.drive_macro_action(
             client_id,
             &selection_situation,
             &policy_action,
             image_changed_now,
         );
+        let macro_duration = macro_start.elapsed().as_micros() as u64;
+        Self::update_timing_stat(
+            &mut self.stats.timing.macro_selection_us,
+            &mut self.stats.timing.last_macro_selection_us,
+            &mut self.stats.timing.max_macro_selection_us,
+            macro_duration,
+        );
         // Process reward and collect experience if available (avoid holding std::sync locks across await)
+        let reward_start = Instant::now();
         let maybe_exp = {
             let mut rp = self.reward_processor.lock().unwrap();
             rp.process_frame(&frame, action_to_send.clone(), prediction.clone())
         };
-        if let Some(exp) = maybe_exp {
+        let reward_duration = reward_start.elapsed().as_micros() as u64;
+        Self::update_timing_stat(
+            &mut self.stats.timing.reward_processing_us,
+            &mut self.stats.timing.last_reward_processing_us,
+            &mut self.stats.timing.max_reward_processing_us,
+            reward_duration,
+        );
+        let exp_start = Instant::now();
+        if let Some(exp) = maybe_exp.clone() {
             let mut collector = self.experience_collector.lock().await;
             collector.collect_experience(exp).await;
+        }
+        let exp_duration = exp_start.elapsed().as_micros() as u64;
+        Self::update_timing_stat(
+            &mut self.stats.timing.experience_collection_us,
+            &mut self.stats.timing.last_experience_collection_us,
+            &mut self.stats.timing.max_experience_collection_us,
+            exp_duration,
+        );
+        // Online policy nudge (very small step) using reward as advantage proxy
+        if let Some(exp) = maybe_exp {
+            let action_idx = Self::game_action_to_index(&policy_action);
+            self.rl_service.nudge_action(action_idx, exp.reward);
+            // Periodically persist the policy
+            if self.stats.total_actions_sent % 50 == 0 {
+                self.rl_service.save_now_blocking();
+            }
         }
         // Now record current as the last action and situation for next step (cache downscaled image)
         let small_curr_for_cache = frame
@@ -453,9 +560,17 @@ impl AIPipelineService {
                 }
             }
         }
+        let action_send_start = Instant::now();
         if let Err(e) = self.action_tx.try_send((client_id, action_to_send)) {
             warn!("Failed to send action to client {}: {}", client_id, e);
         }
+        let action_send_duration = action_send_start.elapsed().as_micros() as u64;
+        Self::update_timing_stat(
+            &mut self.stats.timing.action_send_us,
+            &mut self.stats.timing.last_action_send_us,
+            &mut self.stats.timing.max_action_send_us,
+            action_send_duration,
+        );
         self.stats.total_actions_sent += 1;
 
         info!(
@@ -467,7 +582,16 @@ impl AIPipelineService {
         // Count a decision for FPS
         self.fps_decisions += 1;
         self.update_average_confidence(decision.confidence);
-        self.stats.last_decision_time = Some(start_time);
+        self.stats.last_decision_time = Some(frame_start_time);
+
+        // Update total frame timing
+        let total_frame_duration = frame_start_time.elapsed().as_micros() as u64;
+        Self::update_timing_stat(
+            &mut self.stats.timing.total_frame_us,
+            &mut self.stats.timing.last_total_frame_us,
+            &mut self.stats.timing.max_total_frame_us,
+            total_frame_duration,
+        );
         // Update FPS window
         let now = Instant::now();
         let elapsed = now.duration_since(self.fps_window_start);
@@ -514,6 +638,13 @@ impl AIPipelineService {
         let total = self.stats.total_decisions_made as f32;
         let current_avg = self.stats.average_confidence;
         self.stats.average_confidence = (current_avg * (total - 1.0) + new_confidence) / total;
+    }
+
+    fn update_timing_stat(ewma: &mut f32, last: &mut u64, max: &mut u64, duration_us: u64) {
+        const ALPHA: f32 = 0.1; // EWMA smoothing factor
+        *ewma = *ewma * (1.0 - ALPHA) + duration_us as f32 * ALPHA;
+        *last = duration_us;
+        *max = (*max).max(duration_us);
     }
 
     pub fn get_stats(&self) -> AIStats {

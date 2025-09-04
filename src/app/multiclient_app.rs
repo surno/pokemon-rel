@@ -270,6 +270,68 @@ impl eframe::App for MultiClientApp {
 
                         ui.separator();
 
+                        // Timing Statistics for Bottleneck Detection
+                        ui.heading("Performance Bottlenecks (μs)");
+                        let timing = &stats.timing;
+
+                        egui::Grid::new("timing_grid").striped(true).show(ui, |ui| {
+                            ui.label("Component");
+                            ui.label("EWMA");
+                            ui.label("Last");
+                            ui.label("Max");
+                            ui.end_row();
+
+                            ui.label("Analyze Situation");
+                            ui.label(format!("{:.0}", timing.analyze_situation_us));
+                            ui.label(format!("{}", timing.last_analyze_situation_us));
+                            ui.label(format!("{}", timing.max_analyze_situation_us));
+                            ui.end_row();
+
+                            ui.label("Hash Distance");
+                            ui.label(format!("{:.0}", timing.hash_distance_us));
+                            ui.label(format!("{}", timing.last_hash_distance_us));
+                            ui.label(format!("{}", timing.max_hash_distance_us));
+                            ui.end_row();
+
+                            ui.label("Policy Inference");
+                            ui.label(format!("{:.0}", timing.policy_inference_us));
+                            ui.label(format!("{}", timing.last_policy_inference_us));
+                            ui.label(format!("{}", timing.max_policy_inference_us));
+                            ui.end_row();
+
+                            ui.label("Macro Selection");
+                            ui.label(format!("{:.0}", timing.macro_selection_us));
+                            ui.label(format!("{}", timing.last_macro_selection_us));
+                            ui.label(format!("{}", timing.max_macro_selection_us));
+                            ui.end_row();
+
+                            ui.label("Reward Processing");
+                            ui.label(format!("{:.0}", timing.reward_processing_us));
+                            ui.label(format!("{}", timing.last_reward_processing_us));
+                            ui.label(format!("{}", timing.max_reward_processing_us));
+                            ui.end_row();
+
+                            ui.label("Experience Collection");
+                            ui.label(format!("{:.0}", timing.experience_collection_us));
+                            ui.label(format!("{}", timing.last_experience_collection_us));
+                            ui.label(format!("{}", timing.max_experience_collection_us));
+                            ui.end_row();
+
+                            ui.label("Action Send");
+                            ui.label(format!("{:.0}", timing.action_send_us));
+                            ui.label(format!("{}", timing.last_action_send_us));
+                            ui.label(format!("{}", timing.max_action_send_us));
+                            ui.end_row();
+
+                            ui.strong("TOTAL FRAME");
+                            ui.strong(format!("{:.0}", timing.total_frame_us));
+                            ui.strong(format!("{}", timing.last_total_frame_us));
+                            ui.strong(format!("{}", timing.max_total_frame_us));
+                            ui.end_row();
+                        });
+
+                        ui.separator();
+
                         // Recent Decisions (compact)
                         ui.heading("Recent Decisions");
                         if let Some(cid) = self.selected_client {
