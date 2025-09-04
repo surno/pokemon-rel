@@ -426,7 +426,7 @@ impl SceneAnnotationService {
                     let [r, g, b] = pixel.0;
 
                     // Detect grass-like green colors
-                    if g > 100 && g > r + 20 && g > b + 10 {
+                    if g > 100 && g as u16 > r as u16 + 20 && g as u16 > b as u16 + 10 {
                         grass_pixels += 1;
                     }
                 }
@@ -488,8 +488,8 @@ impl SceneAnnotationService {
                 let pixel = rgb.get_pixel(x, y);
                 let [r, g, b] = pixel.0;
 
-                // Pink/red color detection for Pokemon Center
-                if r > 150 && r > g + 30 && r > b + 20 {
+                // Pink/red color detection for Pokemon Center (safe arithmetic)
+                if r > 150 && r as u16 > g as u16 + 30 && r as u16 > b as u16 + 20 {
                     pink_pixels += 1;
                 }
             }
@@ -532,7 +532,7 @@ impl SceneAnnotationService {
                 let [r, g, b] = pixel.0;
 
                 // Water is typically blue
-                if b > 120 && b > r + 20 && b > g + 10 {
+                if b > 120 && b as u16 > r as u16 + 20 && b as u16 > g as u16 + 10 {
                     blue_pixels += 1;
                 }
             }
@@ -726,11 +726,11 @@ impl SceneAnnotationService {
                     color_buckets[7] += 1; // Black
                 } else if brightness > 200 {
                     color_buckets[6] += 1; // White
-                } else if r > g + 30 && r > b + 30 {
+                } else if r as u16 > g as u16 + 30 && r as u16 > b as u16 + 30 {
                     color_buckets[0] += 1; // Red
-                } else if g > r + 30 && g > b + 30 {
+                } else if g as u16 > r as u16 + 30 && g as u16 > b as u16 + 30 {
                     color_buckets[1] += 1; // Green
-                } else if b > r + 30 && b > g + 30 {
+                } else if b as u16 > r as u16 + 30 && b as u16 > g as u16 + 30 {
                     color_buckets[2] += 1; // Blue
                 }
             }
@@ -860,8 +860,8 @@ impl SceneAnnotationService {
         let [r, g, b] = pixel.0;
 
         // Structure pixels are typically not natural colors (not green grass, blue water)
-        let is_natural_green = g > r + 20 && g > b + 10;
-        let is_natural_blue = b > r + 20 && b > g + 10;
+        let is_natural_green = g as u16 > r as u16 + 20 && g as u16 > b as u16 + 10;
+        let is_natural_blue = b as u16 > r as u16 + 20 && b as u16 > g as u16 + 10;
 
         !is_natural_green && !is_natural_blue
     }
