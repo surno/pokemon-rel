@@ -1,7 +1,7 @@
 use crate::pipeline::services::learning::smart_action_service::{ActionDecision, GameSituation};
 use crate::pipeline::{GameAction, Scene};
 use image::DynamicImage;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 use uuid::Uuid;
 
@@ -19,6 +19,9 @@ pub struct ClientState {
     pub last_situation: Option<GameSituation>,
     pub last_small_image: Option<DynamicImage>,
     pub intro_scene_since: Option<Instant>,
+    pub name_creation_since: Option<Instant>,
+    pub consecutive_same_actions: u32,
+    pub last_actions: VecDeque<GameAction>,
     pub total_actions_taken: usize,
     pub last_update: Instant,
 }
@@ -30,6 +33,9 @@ impl ClientState {
             last_situation: None,
             last_small_image: None,
             intro_scene_since: None,
+            name_creation_since: None,
+            consecutive_same_actions: 0,
+            last_actions: VecDeque::with_capacity(10),
             total_actions_taken: 0,
             last_update: Instant::now(),
         }
@@ -41,6 +47,23 @@ impl ClientState {
         situation: GameSituation,
         small_image: DynamicImage,
     ) {
+        // Track consecutive same actions
+        if let Some(last_action) = self.last_action {
+            if last_action == action {
+                self.consecutive_same_actions += 1;
+            } else {
+                self.consecutive_same_actions = 1;
+            }
+        } else {
+            self.consecutive_same_actions = 1;
+        }
+
+        // Maintain action history
+        self.last_actions.push_back(action);
+        if self.last_actions.len() > 10 {
+            self.last_actions.pop_front();
+        }
+
         self.last_action = Some(action);
         self.last_situation = Some(situation);
         self.last_small_image = Some(small_image);
@@ -60,6 +83,18 @@ impl ClientState {
         }
     }
 
+    pub fn update_name_creation_tracking(&mut self, current_scene: Scene) {
+        if current_scene == Scene::NameCreation {
+            // Start tracking name creation scene if not already tracking
+            if self.name_creation_since.is_none() {
+                self.name_creation_since = Some(Instant::now());
+            }
+        } else {
+            // Clear name creation tracking when leaving scene
+            self.name_creation_since = None;
+        }
+    }
+
     pub fn get_intro_duration(&self) -> Option<std::time::Duration> {
         self.intro_scene_since
             .map(|since| Instant::now().duration_since(since))
@@ -69,6 +104,21 @@ impl ClientState {
         self.get_intro_duration()
             .map(|duration| duration.as_secs_f32() > threshold_seconds)
             .unwrap_or(false)
+    }
+
+    pub fn get_name_creation_duration(&self) -> Option<std::time::Duration> {
+        self.name_creation_since
+            .map(|since| Instant::now().duration_since(since))
+    }
+
+    pub fn is_name_creation_stuck(&self, threshold_seconds: f32) -> bool {
+        self.get_name_creation_duration()
+            .map(|duration| duration.as_secs_f32() > threshold_seconds)
+            .unwrap_or(false)
+    }
+
+    pub fn is_action_stuck(&self, threshold_count: u32) -> bool {
+        self.consecutive_same_actions >= threshold_count
     }
 }
 
@@ -116,10 +166,30 @@ impl ClientStateManager {
         state.update_intro_tracking(current_scene);
     }
 
+    /// Update name creation scene tracking for a client
+    pub fn update_name_creation_tracking(&mut self, client_id: Uuid, current_scene: Scene) {
+        let state = self.get_or_create_client_state(client_id);
+        state.update_name_creation_tracking(current_scene);
+    }
+
     /// Check if client is stuck in intro scene
     pub fn is_client_intro_stuck(&self, client_id: &Uuid, threshold_seconds: f32) -> bool {
         self.get_client_state(client_id)
             .map(|state| state.is_intro_stuck(threshold_seconds))
+            .unwrap_or(false)
+    }
+
+    /// Check if client is stuck in name creation scene
+    pub fn is_client_name_creation_stuck(&self, client_id: &Uuid, threshold_seconds: f32) -> bool {
+        self.get_client_state(client_id)
+            .map(|state| state.is_name_creation_stuck(threshold_seconds))
+            .unwrap_or(false)
+    }
+
+    /// Check if client is stuck repeating the same action
+    pub fn is_client_action_stuck(&self, client_id: &Uuid, threshold_count: u32) -> bool {
+        self.get_client_state(client_id)
+            .map(|state| state.is_action_stuck(threshold_count))
             .unwrap_or(false)
     }
 

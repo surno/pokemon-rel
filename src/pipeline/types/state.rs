@@ -7,6 +7,7 @@ pub enum Scene {
     MainMenu = 2,
     Battle = 3,
     Overworld = 4,
+    NameCreation = 5,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

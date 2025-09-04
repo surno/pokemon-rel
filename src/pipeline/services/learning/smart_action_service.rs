@@ -12,6 +12,37 @@ use std::{
     task::{Context, Poll},
 };
 use tower::Service;
+use uuid::Uuid;
+
+// Predefined name input sequences for Pokemon character creation
+const DEFAULT_NAME_SEQUENCE: &[GameAction] = &[
+    GameAction::A,     // Select 'A' (assuming starts at A)
+    GameAction::Right, // Move to 'S'
+    GameAction::A,     // Select 'S'
+    GameAction::Right, // Move to 'H'
+    GameAction::A,     // Select 'H'
+    GameAction::Down,  // Navigate to bottom row
+    GameAction::Down,  // Navigate to OK/End button
+    GameAction::A,     // Confirm name
+];
+
+// Emergency sequence: Just mash A until something happens
+const EMERGENCY_NAME_SEQUENCE: &[GameAction] = &[
+    GameAction::A,
+    GameAction::A,
+    GameAction::A,
+    GameAction::A,
+    GameAction::A,
+    GameAction::Right,
+    GameAction::A,
+    GameAction::A,
+    GameAction::A,
+    GameAction::Down,
+    GameAction::Down,
+    GameAction::A,
+    GameAction::A,
+    GameAction::A,
+];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GameSituation {
@@ -61,6 +92,9 @@ pub struct SmartActionService {
     scene_rules: HashMap<Scene, Vec<ActionRule>>,
     // Learning from past experiences
     action_history: VecDeque<(GameSituation, GameAction, bool)>, // situation, action, was_successful
+    // Name creation emergency sequences
+    name_sequence_index: HashMap<Uuid, usize>,
+    emergency_mode: HashMap<Uuid, bool>,
 }
 
 impl SmartActionService {
@@ -68,6 +102,8 @@ impl SmartActionService {
         let mut service = Self {
             scene_rules: HashMap::new(),
             action_history: VecDeque::new(),
+            name_sequence_index: HashMap::new(),
+            emergency_mode: HashMap::new(),
         };
 
         // Set up basic rules for different game situations
@@ -307,6 +343,36 @@ impl SmartActionService {
             },
         ];
         self.scene_rules.insert(Scene::Battle, battle_rules);
+
+        // Rules for Name Creation scene
+        let name_creation_rules = vec![
+            ActionRule {
+                condition: Box::new(|s| s.scene == Scene::NameCreation && s.has_menu),
+                action: GameAction::A,
+                priority: 0,
+                description: "Select character in name creation".to_string(),
+            },
+            ActionRule {
+                condition: Box::new(|s| s.scene == Scene::NameCreation),
+                action: GameAction::Right,
+                priority: 1,
+                description: "Navigate name creation character grid".to_string(),
+            },
+            ActionRule {
+                condition: Box::new(|s| s.scene == Scene::NameCreation),
+                action: GameAction::Down,
+                priority: 2,
+                description: "Navigate down in name creation grid".to_string(),
+            },
+            ActionRule {
+                condition: Box::new(|s| s.scene == Scene::NameCreation),
+                action: GameAction::A,
+                priority: 10,
+                description: "Emergency: mash A to complete name creation".to_string(),
+            },
+        ];
+        self.scene_rules
+            .insert(Scene::NameCreation, name_creation_rules);
     }
 
     pub fn analyze_situation(&self, frame: &EnrichedFrame) -> GameSituation {
@@ -325,6 +391,7 @@ impl SmartActionService {
                 Scene::MainMenu => (false, true, false, Some(0)),
                 Scene::Intro => (true, false, true, None),
                 Scene::Overworld => (false, false, false, None),
+                Scene::NameCreation => (true, true, false, Some(0)),
                 Scene::Unknown => (false, false, false, None),
             }
         } else {
@@ -337,7 +404,8 @@ impl SmartActionService {
 
             // Update scene based on detected features
             if has_text && has_menu {
-                scene = Scene::Battle;
+                // Could be battle or name creation - need more sophisticated detection
+                scene = Scene::Battle; // Default to battle for now
             } else if has_text || in_dialog {
                 scene = Scene::Intro;
             } else if has_menu {
@@ -356,6 +424,9 @@ impl SmartActionService {
             Scene::MainMenu => vec!["blue".to_string(), "white".to_string()],
             Scene::Intro => vec!["black".to_string(), "white".to_string()],
             Scene::Overworld => vec!["green".to_string(), "brown".to_string()],
+            Scene::NameCreation => {
+                vec!["blue".to_string(), "white".to_string(), "black".to_string()]
+            }
             Scene::Unknown => vec!["gray".to_string()],
         };
         let urgency_level = self.determine_urgency(scene, has_text, has_menu);
@@ -619,6 +690,7 @@ impl SmartActionService {
             Scene::Intro => UrgencyLevel::Low,     // Can take time
             Scene::Battle => UrgencyLevel::High,   // Act quickly in battle
             Scene::Overworld => UrgencyLevel::Low, // Exploration, no rush
+            Scene::NameCreation => UrgencyLevel::Medium, // Important to complete but not urgent
             Scene::Unknown => {
                 if has_text {
                     UrgencyLevel::Medium // Might need to respond
@@ -626,6 +698,72 @@ impl SmartActionService {
                     UrgencyLevel::Low // Just exploring
                 }
             }
+        }
+    }
+
+    /// Check if client should enter emergency mode for name creation
+    pub fn check_emergency_mode(
+        &mut self,
+        client_id: Uuid,
+        situation: &GameSituation,
+        stuck_duration: Option<std::time::Duration>,
+    ) -> bool {
+        if situation.scene == Scene::NameCreation {
+            // Enter emergency mode if stuck for >30 seconds
+            if let Some(duration) = stuck_duration {
+                if duration.as_secs() > 30 {
+                    self.emergency_mode.insert(client_id, true);
+                    self.name_sequence_index.insert(client_id, 0);
+                    tracing::warn!(
+                        "Client {} entering emergency mode for name creation after {} seconds",
+                        client_id,
+                        duration.as_secs()
+                    );
+                    return true;
+                }
+            }
+        } else {
+            // Clear emergency mode when leaving name creation
+            self.emergency_mode.remove(&client_id);
+            self.name_sequence_index.remove(&client_id);
+        }
+
+        self.emergency_mode
+            .get(&client_id)
+            .copied()
+            .unwrap_or(false)
+    }
+
+    /// Execute emergency name creation sequence
+    pub fn execute_emergency_sequence(&mut self, client_id: Uuid) -> ActionDecision {
+        let sequence_index = self
+            .name_sequence_index
+            .get(&client_id)
+            .copied()
+            .unwrap_or(0);
+
+        let action = if sequence_index < DEFAULT_NAME_SEQUENCE.len() {
+            DEFAULT_NAME_SEQUENCE[sequence_index]
+        } else if sequence_index < DEFAULT_NAME_SEQUENCE.len() + EMERGENCY_NAME_SEQUENCE.len() {
+            let emergency_index = sequence_index - DEFAULT_NAME_SEQUENCE.len();
+            EMERGENCY_NAME_SEQUENCE[emergency_index]
+        } else {
+            // If all sequences exhausted, just mash A
+            GameAction::A
+        };
+
+        // Advance sequence
+        self.name_sequence_index
+            .insert(client_id, sequence_index + 1);
+
+        ActionDecision {
+            action,
+            confidence: 0.9,
+            reasoning: format!(
+                "Emergency name creation sequence step {}",
+                sequence_index + 1
+            ),
+            expected_outcome: "Complete name creation quickly".to_string(),
         }
     }
 

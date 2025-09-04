@@ -79,6 +79,7 @@ impl FastSituationAnalyzer {
             Scene::MainMenu => (false, true, false, UrgencyLevel::Medium),
             Scene::Intro => (true, false, true, UrgencyLevel::Low),
             Scene::Overworld => (false, false, false, UrgencyLevel::Low),
+            Scene::NameCreation => (true, true, false, UrgencyLevel::Medium),
             Scene::Unknown => (false, false, false, UrgencyLevel::Low),
         };
 
@@ -146,6 +147,8 @@ impl FastSituationAnalyzer {
             Scene::Battle
         } else if menu_ratio > 0.2 {
             Scene::MainMenu
+        } else if text_ratio > 0.25 && menu_ratio > 0.05 {
+            Scene::NameCreation // Character grid has both text and menu elements
         } else if text_ratio > 0.2 {
             Scene::Intro
         } else {
@@ -192,6 +195,9 @@ impl FastSituationAnalyzer {
             Scene::MainMenu => vec!["blue".to_string(), "white".to_string()],
             Scene::Intro => vec!["black".to_string(), "white".to_string()],
             Scene::Overworld => vec!["green".to_string(), "brown".to_string()],
+            Scene::NameCreation => {
+                vec!["blue".to_string(), "white".to_string(), "black".to_string()]
+            }
             Scene::Unknown => vec!["gray".to_string()],
         }
     }
@@ -203,6 +209,7 @@ impl FastSituationAnalyzer {
             Scene::MainMenu => UrgencyLevel::Medium,
             Scene::Intro => UrgencyLevel::Low,
             Scene::Overworld => UrgencyLevel::Low,
+            Scene::NameCreation => UrgencyLevel::Medium,
             Scene::Unknown => UrgencyLevel::Low,
         }
     }
