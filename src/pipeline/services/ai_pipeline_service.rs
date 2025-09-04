@@ -1,13 +1,13 @@
 use crate::{
     error::AppError,
     pipeline::{
-        EnrichedFrame, GameAction,
+        EnrichedFrame, GameAction, MacroAction,
         services::learning::smart_action_service::{GameSituation, SmartActionService},
     },
 };
 use imghash::{ImageHasher, perceptual::PerceptualHasher};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -32,6 +32,9 @@ pub struct AIPipelineService {
     stats: AIStats,
     last_action_and_situation: HashMap<Uuid, (GameAction, GameSituation, EnrichedFrame)>,
     image_hasher: Arc<PerceptualHasher>,
+    hash_distance_history: HashMap<Uuid, VecDeque<usize>>, // rolling window per client
+    // Simple tabular learner keyed by situation signature + macro action
+    q_values: HashMap<(u64, MacroAction), f32>,
 }
 
 #[derive(Debug, Clone)]
@@ -43,6 +46,63 @@ pub struct AIStats {
 }
 
 impl AIPipelineService {
+    fn situation_signature(situation: &GameSituation) -> u64 {
+        // Very simple signature: pack booleans and scene into bits
+        let mut sig: u64 = 0;
+        let scene_val = match situation.scene {
+            crate::pipeline::types::Scene::Unknown => 0u64,
+            crate::pipeline::types::Scene::Intro => 1u64,
+            crate::pipeline::types::Scene::MainMenu => 2u64,
+        };
+        sig |= scene_val & 0xF;
+        if situation.has_text {
+            sig |= 1 << 4;
+        }
+        if situation.has_menu {
+            sig |= 1 << 5;
+        }
+        if situation.has_buttons {
+            sig |= 1 << 6;
+        }
+        if situation.in_dialog {
+            sig |= 1 << 7;
+        }
+        if let Some(row) = situation.cursor_row {
+            sig |= ((row as u64) & 0xFF) << 8;
+        }
+        sig
+    }
+
+    fn map_action_to_macro(&self, action: &GameAction, situation: &GameSituation) -> MacroAction {
+        if situation.in_dialog || situation.has_text {
+            return MacroAction::AdvanceDialog;
+        }
+        match action {
+            GameAction::Up => MacroAction::WalkUp,
+            GameAction::Down => MacroAction::WalkDown,
+            GameAction::Left => MacroAction::WalkLeft,
+            GameAction::Right => MacroAction::WalkRight,
+            GameAction::B => MacroAction::MenuBack,
+            _ => MacroAction::MenuSelect,
+        }
+    }
+
+    fn update_q_values(&mut self, client_id: &Uuid) {
+        // Requires at least one previous tuple stored in last_action_and_situation
+        if let Some((last_action, last_situation, _)) =
+            self.last_action_and_situation.get(client_id)
+        {
+            // reward heuristic: use last image-change median and success flag we just computed in process_frame
+            let sig = Self::situation_signature(last_situation);
+            let macro_act = self.map_action_to_macro(last_action, last_situation);
+            // Use decision history success if available; otherwise small penalty
+            let recent = self.decision_history.get(client_id).and_then(|v| v.last());
+            let reward: f32 = 0.0 + recent.map(|_| 0.0).unwrap_or(-0.01);
+            let alpha = 0.2f32;
+            let q = self.q_values.entry((sig, macro_act)).or_insert(0.0);
+            *q = *q + alpha * (reward - *q);
+        }
+    }
     pub fn new(action_tx: mpsc::Sender<(Uuid, GameAction)>) -> Self {
         Self {
             smart_action_service: Arc::new(Mutex::new(SmartActionService::new())),
@@ -56,6 +116,8 @@ impl AIPipelineService {
             },
             last_action_and_situation: HashMap::new(),
             image_hasher: Arc::new(PerceptualHasher::default()),
+            hash_distance_history: HashMap::new(),
+            q_values: HashMap::new(),
         }
     }
 
@@ -85,10 +147,23 @@ impl AIPipelineService {
             {
                 let last_hash = self.image_hasher.hash_from_img(&last_frame.image);
                 let current_hash = self.image_hasher.hash_from_img(&frame.image);
-                let image_changed = last_hash
-                    .distance(&current_hash)
-                    .map(|d| d > 5)
-                    .unwrap_or(false); // treat errors as no change
+                let distance = last_hash.distance(&current_hash).unwrap_or(0);
+
+                // Maintain rolling window of distances
+                let history = self
+                    .hash_distance_history
+                    .entry(client_id)
+                    .or_insert_with(|| VecDeque::with_capacity(5));
+                if history.len() >= 5 {
+                    let _ = history.pop_front();
+                }
+                history.push_back(distance);
+
+                // Compute median distance for stability
+                let mut sorted: Vec<usize> = history.iter().copied().collect();
+                sorted.sort_unstable();
+                let median_distance = sorted[sorted.len() / 2];
+                let image_changed = median_distance > 5; // threshold can be tuned
 
                 let was_successful = smart_service
                     .is_action_successful(last_situation, &current_situation)
@@ -125,6 +200,15 @@ impl AIPipelineService {
             .entry(client_id)
             .or_default()
             .push(ai_decision);
+
+        // Select a macro for learning (map one-step actions for now)
+        let macro_action = self.map_action_to_macro(
+            &decision.action,
+            &self.last_action_and_situation[&client_id].1,
+        );
+
+        // Update Q on last transition
+        self.update_q_values(&client_id);
 
         let action_to_send = decision.action.clone();
         if let Err(e) = self.action_tx.send((client_id, action_to_send)).await {
@@ -184,6 +268,8 @@ impl AIPipelineService {
                     has_text: false,
                     has_menu: false,
                     has_buttons: false,
+                    in_dialog: false,
+                    cursor_row: None,
                     dominant_colors: vec![],
                     urgency_level: crate::pipeline::services::learning::smart_action_service::UrgencyLevel::Low,
                 };

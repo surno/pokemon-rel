@@ -17,6 +17,8 @@ pub struct GameSituation {
     pub has_text: bool,
     pub has_menu: bool,
     pub has_buttons: bool,
+    pub in_dialog: bool,
+    pub cursor_row: Option<u32>,
     pub dominant_colors: Vec<String>,
     pub urgency_level: UrgencyLevel,
 }
@@ -167,6 +169,19 @@ impl SmartActionService {
         prev_situation: &GameSituation,
         current_situation: &GameSituation,
     ) -> bool {
+        // If dialog state advanced or closed, count as success
+        if prev_situation.in_dialog != current_situation.in_dialog {
+            return true;
+        }
+
+        // Cursor movement within menu counts as success
+        if prev_situation.cursor_row.is_some()
+            && current_situation.cursor_row.is_some()
+            && prev_situation.cursor_row != current_situation.cursor_row
+        {
+            return true;
+        }
+
         // Simple heuristic: if scene changed, action was probably successful
         if prev_situation.scene != current_situation.scene {
             return true;
@@ -181,8 +196,8 @@ impl SmartActionService {
             return true;
         }
 
-        // Default to true for now (we can improve this later)
-        true
+        // Default to false now; we pair with image-change check upstream
+        false
     }
 
     // Public method to demonstrate usage in main application
@@ -258,10 +273,11 @@ impl SmartActionService {
             .map(|s| s.scene)
             .unwrap_or(Scene::Unknown);
 
-        // For now, we'll use simple heuristics
-        // Later we can integrate with the color analysis service
+        // Heuristics
         let has_text = self.detect_text_simple(&frame.image);
         let has_menu = self.detect_menu_simple(&frame.image);
+        let in_dialog = self.detect_dialog_box_bottom(&frame.image);
+        let cursor_row = self.detect_menu_cursor_row(&frame.image);
         let has_buttons = has_menu; // Simple assumption for now
 
         let dominant_colors = self.get_dominant_colors_simple(&frame.image);
@@ -272,6 +288,8 @@ impl SmartActionService {
             has_text,
             has_menu,
             has_buttons,
+            in_dialog,
+            cursor_row,
             dominant_colors,
             urgency_level,
         }
@@ -279,11 +297,9 @@ impl SmartActionService {
 
     fn detect_text_simple(&self, image: &image::DynamicImage) -> bool {
         // Simple text detection: look for areas with high contrast
-        // This is a placeholder - we'll improve this with the color analysis service
         let rgb_image = image.to_rgb8();
         let (width, height) = rgb_image.dimensions();
 
-        // Sample some pixels and check for high contrast
         let mut high_contrast_count = 0;
         let mut total_samples = 0;
 
@@ -320,11 +336,9 @@ impl SmartActionService {
 
     fn detect_menu_simple(&self, image: &image::DynamicImage) -> bool {
         // Simple menu detection: look for rectangular patterns
-        // This is a placeholder - we'll improve this with the color analysis service
         let rgb_image = image.to_rgb8();
         let (width, height) = rgb_image.dimensions();
 
-        // Look for areas with consistent borders
         let mut menu_indicators = 0;
 
         for y in (0..height).step_by(16) {
@@ -336,6 +350,66 @@ impl SmartActionService {
         }
 
         menu_indicators >= 2 // At least 2 menu-like items
+    }
+
+    fn detect_menu_cursor_row(&self, image: &image::DynamicImage) -> Option<u32> {
+        // Heuristic: in menus, the highlighted row tends to be a bright/dark band.
+        // We compute row brightness and look for the row with strongest local contrast.
+        let gray = image.to_luma8();
+        let (w, h) = gray.dimensions();
+        if h < 32 || w < 64 {
+            return None;
+        }
+
+        let mut best_row = None;
+        let mut best_score: f32 = 0.0;
+
+        for y in (0..h).step_by(2) {
+            // average brightness of the row (sample every 4 px)
+            let mut sum = 0.0f32;
+            let mut count = 0.0f32;
+            for x in (0..w).step_by(4) {
+                sum += gray.get_pixel(x, y)[0] as f32;
+                count += 1.0;
+            }
+            if count == 0.0 {
+                continue;
+            }
+            let row_avg = sum / count;
+
+            // local contrast score: difference from neighbors
+            let prev_avg = if y >= 2 {
+                let mut s = 0.0;
+                let mut c = 0.0;
+                for x in (0..w).step_by(4) {
+                    s += gray.get_pixel(x, y - 2)[0] as f32;
+                    c += 1.0;
+                }
+                if c == 0.0 { row_avg } else { s / c }
+            } else {
+                row_avg
+            };
+            let next_avg = if y + 2 < h {
+                let mut s = 0.0;
+                let mut c = 0.0;
+                for x in (0..w).step_by(4) {
+                    s += gray.get_pixel(x, y + 2)[0] as f32;
+                    c += 1.0;
+                }
+                if c == 0.0 { row_avg } else { s / c }
+            } else {
+                row_avg
+            };
+
+            let score = (row_avg - prev_avg).abs() + (row_avg - next_avg).abs();
+            if score > best_score {
+                best_score = score;
+                best_row = Some(y);
+            }
+        }
+
+        // Require meaningful score
+        if best_score > 40.0 { best_row } else { None }
     }
 
     fn looks_like_menu_item(&self, image: &image::RgbImage, x: u32, y: u32) -> bool {
@@ -370,6 +444,44 @@ impl SmartActionService {
 
         // Require a strong majority of border pixels to contrast with the center (reduces false positives)
         border_pixels > 0 && (high_contrast_border as f32 / border_pixels as f32) >= 0.7
+    }
+
+    fn detect_dialog_box_bottom(&self, image: &image::DynamicImage) -> bool {
+        // Very simple heuristic: look for a wide high-contrast band near the bottom
+        let rgb = image.to_rgb8();
+        let (w, h) = rgb.dimensions();
+        if h < 32 || w < 64 {
+            return false;
+        }
+
+        // Scan the bottom 20% of the image in horizontal stripes
+        let start_y = (h as f32 * 0.8) as u32;
+        let mut strong_rows = 0u32;
+        let mut total_rows = 0u32;
+
+        for y in (start_y..h).step_by(2) {
+            total_rows += 1;
+            // sample columns
+            let mut transitions = 0u32;
+            let mut last_brightness: Option<f32> = None;
+            for x in (0..w).step_by(4) {
+                let p = rgb.get_pixel(x, y);
+                let b = (p[0] as f32 + p[1] as f32 + p[2] as f32) / 3.0;
+                if let Some(lb) = last_brightness {
+                    if (b - lb).abs() > 35.0 {
+                        transitions += 1;
+                    }
+                }
+                last_brightness = Some(b);
+            }
+            if transitions > (w / 4) / 6 {
+                // row has enough contrast transitions
+                strong_rows += 1;
+            }
+        }
+
+        // If enough strong rows found, likely a dialog box region
+        total_rows > 0 && (strong_rows as f32 / total_rows as f32) > 0.3
     }
 
     fn get_dominant_colors_simple(&self, image: &image::DynamicImage) -> Vec<String> {
@@ -496,6 +608,8 @@ impl SmartActionService {
                 hist_situation.scene == situation.scene
                     && hist_situation.has_text == situation.has_text
                     && hist_situation.has_menu == situation.has_menu
+                    && hist_situation.in_dialog == situation.in_dialog
+                    && hist_situation.cursor_row == situation.cursor_row
                     && *was_successful // Only use successful actions
             })
             .collect();
@@ -529,8 +643,8 @@ impl SmartActionService {
             UrgencyLevel::Critical => GameAction::A, // Act quickly
             UrgencyLevel::High => GameAction::A,     // Act quickly
             UrgencyLevel::Medium => {
-                if situation.has_text {
-                    GameAction::A // Probably need to advance text
+                if situation.has_text || situation.in_dialog {
+                    GameAction::A // Probably need to advance text/dialog
                 } else if situation.has_menu {
                     GameAction::A // Probably need to select menu option
                 } else {
@@ -539,8 +653,8 @@ impl SmartActionService {
             }
             UrgencyLevel::Low => {
                 // When not urgent, can explore
-                if situation.has_text {
-                    GameAction::A // Read text
+                if situation.has_text || situation.in_dialog {
+                    GameAction::A // Read/advance dialog
                 } else {
                     GameAction::Up // Move around to explore
                 }
