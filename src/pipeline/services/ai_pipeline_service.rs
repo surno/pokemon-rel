@@ -341,8 +341,16 @@ impl AIPipelineService {
             if let Some((last_action, last_situation, last_frame)) =
                 self.last_action_and_situation.get(&client_id)
             {
-                let last_hash = self.image_hasher.hash_from_img(&last_frame.image);
-                let current_hash = self.image_hasher.hash_from_img(&frame.image);
+                // Downscale before hashing for speed; DS top+bottom is tall, so scale down keeping aspect.
+                let small_last =
+                    last_frame
+                        .image
+                        .resize(128, 128, image::imageops::FilterType::Nearest);
+                let small_curr = frame
+                    .image
+                    .resize(128, 128, image::imageops::FilterType::Nearest);
+                let last_hash = self.image_hasher.hash_from_img(&small_last);
+                let current_hash = self.image_hasher.hash_from_img(&small_curr);
                 let distance = last_hash.distance(&current_hash).unwrap_or(0);
 
                 // Maintain rolling window of distances
@@ -434,7 +442,7 @@ impl AIPipelineService {
             &decision.action,
             image_changed_now,
         );
-        if let Err(e) = self.action_tx.send((client_id, action_to_send)).await {
+        if let Err(e) = self.action_tx.try_send((client_id, action_to_send)) {
             warn!("Failed to send action to client {}: {}", client_id, e);
         }
 

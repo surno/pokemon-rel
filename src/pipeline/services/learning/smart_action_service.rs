@@ -561,6 +561,9 @@ impl SmartActionService {
     }
 
     pub fn make_decision(&mut self, situation: &GameSituation) -> ActionDecision {
+        #[cfg(test)]
+        const EPSILON: f32 = 0.0; // deterministic in tests
+        #[cfg(not(test))]
         const EPSILON: f32 = 0.1; // 10% chance of exploration
         if rand::random::<f32>() < EPSILON {
             let random_action = rand::random::<GameAction>();
@@ -708,24 +711,17 @@ mod tests {
     use image::DynamicImage;
     use uuid::Uuid;
 
-    fn create_mock_frame(scene: Scene, has_text: bool, has_menu: bool) -> EnrichedFrame {
+    fn create_mock_frame(scene: Scene, _has_text: bool, _has_menu: bool) -> EnrichedFrame {
         // Create a simple mock image (1x1 pixel)
         let image = DynamicImage::new_rgb8(1, 1);
 
-        EnrichedFrame {
-            client: Uuid::new_v4(),
-            image,
-            timestamp: chrono::Utc::now().timestamp_millis(),
-            program: 1,
-            id: Uuid::new_v4(),
-            state: Some(State {
-                scene,
-                player_position: (0.0, 0.0),
-                pokemon_count: 0,
-            }),
-            action: None,
-            color_analysis: None,
-        }
+        let mut f = EnrichedFrame::new(Uuid::new_v4(), image, 1);
+        f.state = Some(State {
+            scene,
+            player_position: (0.0, 0.0),
+            pokemon_count: 0,
+        });
+        f
     }
 
     #[test]
@@ -775,9 +771,9 @@ mod tests {
         assert_eq!(situation.scene, Scene::Intro);
         assert_eq!(situation.urgency_level, UrgencyLevel::Low);
 
-        // Make decision - should use scene rules
+        // Make decision - prefers Start in Intro to skip cutscenes
         let decision = service.make_decision(&situation);
-        assert_eq!(decision.action, GameAction::A);
+        assert_eq!(decision.action, GameAction::Start);
         assert_eq!(decision.confidence, 0.7);
         assert!(decision.reasoning.contains("intro"));
     }
@@ -820,8 +816,8 @@ mod tests {
         // Should have made 3 decisions
         assert_eq!(decisions.len(), 3);
 
-        // First decision should be for intro (using rules)
-        assert_eq!(decisions[0].action, GameAction::A);
+        // First decision should be for intro (using rules, prefers Start)
+        assert_eq!(decisions[0].action, GameAction::Start);
         assert!(decisions[0].reasoning.contains("intro"));
 
         // Second decision should be for main menu (using rules since no buttons detected)

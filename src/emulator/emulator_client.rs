@@ -1,5 +1,8 @@
 use image::{DynamicImage, RgbImage};
-use tokio::{sync::mpsc, task::JoinHandle};
+use tokio::{
+    sync::{mpsc, mpsc::error::TrySendError},
+    task::JoinHandle,
+};
 
 use crate::{
     emulator::{EmulatorReader, EmulatorWriter},
@@ -64,17 +67,11 @@ impl EmulatorClient {
                                 desmume.cycle();
 
                                 let buffer = desmume.display_buffer_as_rgbx();
-
+                                let mut new_buffer: Vec<u8> = Vec::with_capacity(buffer.len() / 4 * 3);
                                 // -- pixel order is B G R A; convert to R G B
-                                let mut new_buffer = Vec::new();
-                                for i in (0..buffer.len()).step_by(4) {
-                                    let b = buffer[i];
-                                    let g = buffer[i + 1];
-                                    let r = buffer[i + 2];
-                                    // let a = buffer[i + 3];
-                                    new_buffer.push(r);
-                                    new_buffer.push(g);
-                                    new_buffer.push(b);
+                                for chunk in buffer.chunks_exact(4) {
+                                    // chunk = [B, G, R, A]
+                                    new_buffer.extend_from_slice(&[chunk[2], chunk[1], chunk[0]]);
                                 }
 
                                 let image = DynamicImage::ImageRgb8(
@@ -86,12 +83,18 @@ impl EmulatorClient {
                                     .unwrap(),
                                 );
 
-                                match frame_tx.blocking_send(image) {
+                                match frame_tx.try_send(image) {
                                     Ok(_) => {}
-                                    Err(e) => {
-                                        tracing::error!("Error sending frame: {}", e);
-                                        break;
-                                    }
+                                    Err(err) => match err {
+                                        TrySendError::Full(_) => {
+                                            // Drop frame to keep real-time
+                                            tracing::warn!("Dropping frame: channel full");
+                                        }
+                                        TrySendError::Closed(_) => {
+                                            tracing::warn!("Frame channel closed, stopping emulator loop");
+                                            break;
+                                        }
+                                    },
                                 }
                             }
                         });
