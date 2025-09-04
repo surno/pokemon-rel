@@ -4,6 +4,7 @@ use crate::{
 };
 use image::{GrayImage, RgbImage};
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, VecDeque},
     future::Future,
@@ -12,7 +13,7 @@ use std::{
 };
 use tower::Service;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GameSituation {
     pub scene: Scene,
     pub has_text: bool,
@@ -24,7 +25,7 @@ pub struct GameSituation {
     pub urgency_level: UrgencyLevel,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum UrgencyLevel {
     Low,      // Walking around, exploring
     Medium,   // In a menu, choosing options
@@ -72,6 +73,16 @@ impl SmartActionService {
         // Set up basic rules for different game situations
         service.setup_basic_rules();
         service
+    }
+
+    // Export a clone of the action history for persistence
+    pub fn export_action_history(&self) -> VecDeque<(GameSituation, GameAction, bool)> {
+        self.action_history.clone()
+    }
+
+    // Replace the current action history with a provided one (used on load)
+    pub fn import_action_history(&mut self, history: VecDeque<(GameSituation, GameAction, bool)>) {
+        self.action_history = history;
     }
 
     // Add feedback method to record action results

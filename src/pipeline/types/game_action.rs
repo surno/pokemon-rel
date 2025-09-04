@@ -1,7 +1,8 @@
 use rand::Rng;
 use rand::distr::{Distribution, StandardUniform};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum GameAction {
     A = 0,

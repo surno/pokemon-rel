@@ -18,6 +18,7 @@ use crate::{
 use image::DynamicImage;
 use imghash::{ImageHasher, perceptual::PerceptualHasher};
 use rand::random;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, VecDeque},
     sync::{Arc, Mutex},
@@ -95,7 +96,129 @@ pub struct AIDebugSnapshot {
     pub median_distance: Option<usize>,
 }
 
+// ---------- Persistence types ----------
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct QValueEntry {
+    signature: u64,
+    action: MacroAction,
+    value: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedState {
+    q_values: Vec<QValueEntry>,
+    epsilon: f32,
+    action_history: VecDeque<(
+        crate::pipeline::services::learning::smart_action_service::GameSituation,
+        GameAction,
+        bool,
+    )>,
+}
+
 impl AIPipelineService {
+    // ---------- Persistence ----------
+    const STATE_PATH: &'static str = "ai_state.json";
+
+    fn build_persisted_state(&self) -> PersistedState {
+        // Convert q_values map into entries list
+        let q_values: Vec<QValueEntry> = self
+            .q_values
+            .iter()
+            .map(|(&(signature, action), &value)| QValueEntry {
+                signature,
+                action,
+                value,
+            })
+            .collect();
+        // Export action history from SmartActionService
+        let action_history = {
+            if let Ok(svc) = self.smart_action_service.lock() {
+                svc.export_action_history()
+            } else {
+                VecDeque::new()
+            }
+        };
+        PersistedState {
+            q_values,
+            epsilon: self.epsilon,
+            action_history,
+        }
+    }
+
+    fn apply_persisted_state(&mut self, state: PersistedState) {
+        // Rebuild q_values map
+        self.q_values.clear();
+        for entry in state.q_values.into_iter() {
+            self.q_values
+                .insert((entry.signature, entry.action), entry.value);
+        }
+        self.epsilon = state.epsilon;
+        // Import action history into SmartActionService
+        if let Ok(mut svc) = self.smart_action_service.lock() {
+            svc.import_action_history(state.action_history);
+        }
+    }
+
+    fn try_load_from_disk(&mut self) {
+        match std::fs::read(Self::STATE_PATH) {
+            Ok(bytes) => match serde_json::from_slice::<PersistedState>(&bytes) {
+                Ok(state) => {
+                    self.apply_persisted_state(state);
+                    info!("Loaded AI state from {}", Self::STATE_PATH);
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to deserialize AI state ({}): {}",
+                        Self::STATE_PATH,
+                        e
+                    );
+                }
+            },
+            Err(e) => {
+                // File might not exist on first run; keep it as info-level
+                info!("AI state not loaded ({}): {}", Self::STATE_PATH, e);
+            }
+        }
+    }
+
+    pub async fn save_to_disk_async(&self) {
+        let state = self.build_persisted_state();
+        match serde_json::to_vec_pretty(&state) {
+            Ok(bytes) => {
+                if let Err(e) = tokio::fs::write(Self::STATE_PATH, bytes).await {
+                    warn!("Failed to save AI state to {}: {}", Self::STATE_PATH, e);
+                } else {
+                    debug!("Saved AI state to {}", Self::STATE_PATH);
+                }
+            }
+            Err(e) => warn!("Failed to serialize AI state: {}", e),
+        }
+    }
+
+    fn spawn_periodic_save(&self) {
+        let cloned = self.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+            loop {
+                interval.tick().await;
+                cloned.save_to_disk_async().await;
+            }
+        });
+    }
+    // Public synchronous save helper (best-effort for shutdowns/tests)
+    pub fn save_now_blocking(&self) {
+        let state = self.build_persisted_state();
+        match serde_json::to_vec_pretty(&state) {
+            Ok(bytes) => {
+                if let Err(e) = std::fs::write(Self::STATE_PATH, bytes) {
+                    warn!("Failed to save AI state to {}: {}", Self::STATE_PATH, e);
+                } else {
+                    debug!("Saved AI state to {} (sync)", Self::STATE_PATH);
+                }
+            }
+            Err(e) => warn!("Failed to serialize AI state (sync): {}", e),
+        }
+    }
     fn candidate_macros() -> [MacroAction; 8] {
         [
             MacroAction::AdvanceDialog,
@@ -332,7 +455,7 @@ impl AIPipelineService {
             total_actions_sent: 0,
         };
         let (training_tx, _training_rx) = mpsc::channel(1000);
-        Self {
+        let mut this = Self {
             smart_action_service: Arc::new(Mutex::new(SmartActionService::new())),
             decision_history: Arc::new(Mutex::new(HashMap::new())),
             action_tx,
@@ -361,7 +484,12 @@ impl AIPipelineService {
                 10_000,
                 training_tx,
             ))),
-        }
+        };
+        // Try loading persisted state from disk on creation
+        this.try_load_from_disk();
+        // Spawn periodic save task
+        this.spawn_periodic_save();
+        this
     }
 
     // Synchronous frame processing for use in GUI
@@ -665,6 +793,13 @@ impl AIPipelineService {
             }
         }
         Ok(())
+    }
+}
+
+impl Drop for AIPipelineService {
+    fn drop(&mut self) {
+        // Best-effort save on shutdown
+        self.save_now_blocking();
     }
 }
 
