@@ -316,29 +316,46 @@ impl SmartActionService {
             .as_ref()
             .map(|s| s.scene)
             .unwrap_or(Scene::Unknown);
-        // Convert once per frame for downstream detectors
-        let rgb = frame.image.to_rgb8();
-        let gray = frame.image.to_luma8();
-        // Heuristics using precomputed images
-        let has_text = self.detect_text_simple(&rgb);
-        let has_menu = self.detect_menu_simple(&rgb);
-        let in_dialog = self.detect_dialog_box_bottom(&rgb);
 
-        // Heuristic order:
-        // - If we detect both text and a menu, it's likely a battle UI
-        // - Otherwise map Unknown with text/dialog to Intro
-        // - Or Unknown with menu to MainMenu
-        if scene == Scene::Unknown && has_text && has_menu {
-            scene = Scene::Battle;
-        } else if scene == Scene::Unknown && (has_text || in_dialog) {
-            scene = Scene::Intro;
-        } else if scene == Scene::Unknown && has_menu {
-            scene = Scene::MainMenu;
-        }
-        let cursor_row = self.detect_menu_cursor_row(&gray);
+        // Fast path: if scene is already known, skip expensive image analysis
+        let (has_text, has_menu, in_dialog, cursor_row) = if scene != Scene::Unknown {
+            // Use simple heuristics based on known scene
+            match scene {
+                Scene::Battle => (true, true, false, None),
+                Scene::MainMenu => (false, true, false, Some(0)),
+                Scene::Intro => (true, false, true, None),
+                Scene::Unknown => (false, false, false, None),
+            }
+        } else {
+            // Only do expensive image analysis when scene is unknown
+            let rgb = frame.image.to_rgb8();
+            let gray = frame.image.to_luma8();
+            let has_text = self.detect_text_simple(&rgb);
+            let has_menu = self.detect_menu_simple(&rgb);
+            let in_dialog = self.detect_dialog_box_bottom(&rgb);
+
+            // Update scene based on detected features
+            if has_text && has_menu {
+                scene = Scene::Battle;
+            } else if has_text || in_dialog {
+                scene = Scene::Intro;
+            } else if has_menu {
+                scene = Scene::MainMenu;
+            }
+
+            let cursor_row = self.detect_menu_cursor_row(&gray);
+            (has_text, has_menu, in_dialog, cursor_row)
+        };
+
         let has_buttons = has_menu; // Simple assumption for now
 
-        let dominant_colors = self.get_dominant_colors_simple(&frame.image);
+        // Simplified color analysis - just use scene-based defaults
+        let dominant_colors = match scene {
+            Scene::Battle => vec!["red".to_string(), "blue".to_string()],
+            Scene::MainMenu => vec!["blue".to_string(), "white".to_string()],
+            Scene::Intro => vec!["black".to_string(), "white".to_string()],
+            Scene::Unknown => vec!["gray".to_string()],
+        };
         let urgency_level = self.determine_urgency(scene, has_text, has_menu);
 
         GameSituation {

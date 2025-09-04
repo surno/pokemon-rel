@@ -1,6 +1,4 @@
 use crate::pipeline::types::{EnrichedFrame, GameAction, Scene};
-use image::imageops::FilterType;
-use imghash::{ImageHasher, perceptual::PerceptualHasher};
 
 use super::reward_calculator::RewardCalculator;
 
@@ -55,14 +53,9 @@ impl RewardCalculator for NavigationRewardCalculator {
             return -0.01;
         };
 
-        // Compute a perceptual hash distance to detect "standing still"
-        let small_curr = current_frame.image.resize(128, 128, FilterType::Nearest);
-        let small_next = nf.image.resize(128, 128, FilterType::Nearest);
-        let hasher = PerceptualHasher::default();
-        let h_curr = hasher.hash_from_img(&small_curr);
-        let h_next = hasher.hash_from_img(&small_next);
-        let distance = h_curr.distance(&h_next).unwrap_or(0);
-        let changed = distance > 5; // threshold tuned alongside pipeline
+        // Use simple state-based change detection instead of expensive perceptual hashing
+        // This avoids costly image resizing and hashing operations
+        let changed = current_scene != next_scene || current_frame.state != nf.state;
 
         // Overworld is our catch-all when not Battle/MainMenu/Intro
         let in_overworld = current_scene != Scene::Battle

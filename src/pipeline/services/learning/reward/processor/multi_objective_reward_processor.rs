@@ -8,8 +8,6 @@ use crate::pipeline::services::learning::reward::calculator::BattleRewardCalcula
 use crate::pipeline::services::learning::reward::calculator::reward_calculator::RewardCalculator;
 use crate::pipeline::services::learning::reward::multi_objective_reward::MultiObjectiveReward;
 use crate::pipeline::types::{EnrichedFrame, GameAction, RLPrediction};
-use image::imageops::FilterType;
-use imghash::{ImageHasher, perceptual::PerceptualHasher};
 
 pub struct MultiObjectiveRewardProcessor {
     frame_buffer: VecDeque<EnrichedFrame>,
@@ -80,30 +78,21 @@ impl RewardProcessor for MultiObjectiveRewardProcessor {
             processed_action.clone(),
             Some(next_frame),
         );
-        // Overworld stall/oscillation penalties using 3-frame context
-        let hasher = PerceptualHasher::default();
-        let small_prev = previous_frame.image.resize(128, 128, FilterType::Nearest);
-        let small_curr = current_frame.image.resize(128, 128, FilterType::Nearest);
-        let small_next = next_frame.image.resize(128, 128, FilterType::Nearest);
-        let h_prev = hasher.hash_from_img(&small_prev);
-        let h_curr = hasher.hash_from_img(&small_curr);
-        let h_next = hasher.hash_from_img(&small_next);
-        let d_pc = h_prev.distance(&h_curr).unwrap_or(0);
-        let d_cn = h_curr.distance(&h_next).unwrap_or(0);
-        let d_pn = h_prev.distance(&h_next).unwrap_or(0);
-        let changed_pc = d_pc > 5;
-        let changed_cn = d_cn > 5;
-        let changed_pn = d_pn > 5;
-        let stall_penalty = if !changed_pc && !changed_cn && !changed_pn {
-            0.3
+        // Simplified stall/oscillation penalties - avoid expensive image hashing
+        // Use basic scene/state changes instead of perceptual hashing
+        let prev_scene = previous_frame.state.as_ref().map(|s| s.scene);
+        let curr_scene = current_frame.state.as_ref().map(|s| s.scene);
+        let next_scene = next_frame.state.as_ref().map(|s| s.scene);
+
+        let scene_changed_pc = prev_scene != curr_scene;
+        let scene_changed_cn = curr_scene != next_scene;
+
+        let stall_penalty = if !scene_changed_pc && !scene_changed_cn {
+            0.1 // Reduced penalty, less expensive to compute
         } else {
             0.0
         };
-        let oscillation_penalty = if !changed_pn && changed_pc && changed_cn {
-            0.2
-        } else {
-            0.0
-        };
+        let oscillation_penalty = 0.0; // Disable expensive oscillation detection
 
         let navigation_reward_total = nav_reward - stall_penalty - oscillation_penalty;
         let detailed_reward = MultiObjectiveReward {
