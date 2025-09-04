@@ -104,8 +104,7 @@ impl Service<EnrichedFrame> for RLService {
             let max_p = probs.iter().cloned().fold(0.0f32, f32::max);
             let prediction = RLPrediction {
                 action_probabilities: probs,
-                value_estimate: 0.0,
-                confidence: max_p,
+                value_prediction: 0.0,
             };
             Ok(prediction)
         })

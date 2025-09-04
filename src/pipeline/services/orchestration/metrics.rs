@@ -74,6 +74,7 @@ pub struct PerformanceStats {
     pub avg_reward_processing_us: f32,
     pub avg_experience_collection_us: f32,
     pub avg_image_change_detection_us: f32,
+    pub avg_action_send_us: f32,
 
     // Max timing stats for bottleneck detection
     pub max_scene_analysis_us: u64,
@@ -83,6 +84,7 @@ pub struct PerformanceStats {
     pub max_reward_processing_us: u64,
     pub max_experience_collection_us: u64,
     pub max_image_change_detection_us: u64,
+    pub max_action_send_us: u64,
 }
 
 impl Default for PerformanceStats {
@@ -101,6 +103,7 @@ impl Default for PerformanceStats {
             avg_reward_processing_us: 0.0,
             avg_experience_collection_us: 0.0,
             avg_image_change_detection_us: 0.0,
+            avg_action_send_us: 0.0,
             max_scene_analysis_us: 0,
             max_policy_inference_us: 0,
             max_action_selection_us: 0,
@@ -108,6 +111,7 @@ impl Default for PerformanceStats {
             max_reward_processing_us: 0,
             max_experience_collection_us: 0,
             max_image_change_detection_us: 0,
+            max_action_send_us: 0,
         }
     }
 }
@@ -206,6 +210,11 @@ impl MetricsObserver for PerformanceMonitor {
                     Self::update_ewma(stats.avg_image_change_detection_us, duration_us, ALPHA);
                 stats.max_image_change_detection_us =
                     stats.max_image_change_detection_us.max(duration_us);
+            }
+            ProcessingStepType::ActionSending => {
+                stats.avg_action_send_us =
+                    Self::update_ewma(stats.avg_action_send_us, duration_us, ALPHA);
+                stats.max_action_send_us = stats.max_action_send_us.max(duration_us);
             }
         }
     }

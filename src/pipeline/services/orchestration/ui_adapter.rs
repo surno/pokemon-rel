@@ -106,18 +106,8 @@ impl UIPipelineAdapter {
                 macro_selection_us: perf_stats.avg_macro_execution_us,
                 reward_processing_us: perf_stats.avg_reward_processing_us,
                 experience_collection_us: perf_stats.avg_experience_collection_us,
-                action_send_us: 0.0, // Not tracked separately in new architecture
+                action_send_us: perf_stats.avg_action_send_us,
                 total_frame_us: perf_stats.average_frame_time_us,
-
-                // Last frame timings (approximate from EWMA)
-                last_analyze_situation_us: perf_stats.avg_scene_analysis_us as u64,
-                last_hash_distance_us: perf_stats.avg_image_change_detection_us as u64,
-                last_policy_inference_us: perf_stats.avg_policy_inference_us as u64,
-                last_macro_selection_us: perf_stats.avg_macro_execution_us as u64,
-                last_reward_processing_us: perf_stats.avg_reward_processing_us as u64,
-                last_experience_collection_us: perf_stats.avg_experience_collection_us as u64,
-                last_action_send_us: 0,
-                last_total_frame_us: perf_stats.average_frame_time_us as u64,
 
                 // Max timings
                 max_analyze_situation_us: perf_stats.max_scene_analysis_us,
@@ -126,8 +116,18 @@ impl UIPipelineAdapter {
                 max_macro_selection_us: perf_stats.max_macro_execution_us,
                 max_reward_processing_us: perf_stats.max_reward_processing_us,
                 max_experience_collection_us: perf_stats.max_experience_collection_us,
-                max_action_send_us: 0,
-                max_total_frame_us: perf_stats.average_frame_time_us as u64,
+                max_action_send_us: perf_stats.max_action_send_us,
+                max_total_frame_us: 0, // This isn't tracked, using average
+
+                // last_ timings are not available in the new architecture, using averages as fallback
+                last_analyze_situation_us: perf_stats.avg_scene_analysis_us as u64,
+                last_hash_distance_us: perf_stats.avg_image_change_detection_us as u64,
+                last_policy_inference_us: perf_stats.avg_policy_inference_us as u64,
+                last_macro_selection_us: perf_stats.avg_macro_execution_us as u64,
+                last_reward_processing_us: perf_stats.avg_reward_processing_us as u64,
+                last_experience_collection_us: perf_stats.avg_experience_collection_us as u64,
+                last_action_send_us: perf_stats.avg_action_send_us as u64,
+                last_total_frame_us: perf_stats.average_frame_time_us as u64,
             },
         }
     }

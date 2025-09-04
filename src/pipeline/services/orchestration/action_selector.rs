@@ -50,7 +50,7 @@ impl ActionSelector for PolicyBasedActionSelector {
             ActionSelection {
                 game_action: policy_action,
                 macro_action,
-                confidence: prediction.confidence,
+                confidence: prediction.action_probabilities[policy_action as usize],
                 reasoning: "Selected using PPO policy prediction".to_string(),
                 selection_method: SelectionMethod::PolicyBased,
             }

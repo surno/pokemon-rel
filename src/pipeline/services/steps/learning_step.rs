@@ -1,4 +1,5 @@
 use crate::error::AppError;
+use crate::pipeline::GameAction;
 use crate::pipeline::services::{
     RLService,
     learning::{
@@ -63,43 +64,46 @@ impl LearningStep {
 #[async_trait]
 impl ProcessingStep for LearningStep {
     async fn process(&mut self, context: &mut FrameContext) -> Result<(), AppError> {
+        // Only run learning step if image has changed
+        if !context.image_changed {
+            return Ok(());
+        }
+
         let reward_start = Instant::now();
-
-        // We need policy prediction and selected action to proceed
-        let policy_prediction = context.policy_prediction.as_ref().ok_or_else(|| {
-            AppError::Client("No policy prediction available for learning".to_string())
-        })?;
-
-        let selected_action = context.selected_action.as_ref().ok_or_else(|| {
-            AppError::Client("No selected action available for learning".to_string())
-        })?;
-
-        // Process reward and collect experience
         let maybe_experience = {
-            let mut rp = self.reward_processor.lock().unwrap();
-            rp.process_frame(&context.frame, *selected_action, policy_prediction.clone())
+            let mut reward_processor = self.reward_processor.lock().unwrap();
+            let prediction = context
+                .policy_prediction
+                .as_ref()
+                .cloned()
+                .unwrap_or_default();
+            reward_processor.process_frame(
+                &context.frame,
+                context.selected_action.unwrap_or(GameAction::A),
+                prediction,
+            )
         };
-
         let reward_duration = reward_start.elapsed().as_micros() as u64;
         context
             .metrics
             .record_duration(ProcessingStepType::RewardProcessing, reward_duration);
 
-        // Collect experience if available
-        let exp_start = Instant::now();
-        if let Some(experience) = maybe_experience.clone() {
-            let mut collector = self.experience_collector.lock().await;
-            collector.collect_experience(experience).await;
-        }
-
-        let exp_duration = exp_start.elapsed().as_micros() as u64;
-        context
-            .metrics
-            .record_duration(ProcessingStepType::ExperienceCollection, exp_duration);
-
-        // Online policy nudge using reward as advantage proxy
         if let Some(experience) = maybe_experience {
-            let action_idx = Self::game_action_to_index(selected_action);
+            let experience_start = Instant::now();
+            {
+                let mut collector = self.experience_collector.lock().await;
+                collector.collect_experience(experience.clone()).await;
+            }
+            let experience_duration = experience_start.elapsed().as_micros() as u64;
+            context.metrics.record_duration(
+                ProcessingStepType::ExperienceCollection,
+                experience_duration,
+            );
+
+            let selected_action = context.selected_action.unwrap_or(GameAction::A);
+
+            // Online policy nudge using reward as advantage proxy
+            let action_idx = Self::game_action_to_index(&selected_action);
             {
                 let mut rl_service = self.rl_service.lock().unwrap();
                 rl_service.nudge_action(action_idx, experience.reward);

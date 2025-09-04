@@ -1,5 +1,5 @@
+use crate::pipeline::services::learning::smart_action_service::{ActionDecision, GameSituation};
 use crate::pipeline::{EnrichedFrame, GameAction, RLPrediction};
-use crate::pipeline::services::learning::smart_action_service::{GameSituation, ActionDecision};
 use std::time::Instant;
 use uuid::Uuid;
 
@@ -61,9 +61,16 @@ impl FrameMetrics {
             ProcessingStepType::PolicyInference => self.policy_inference_duration_us = duration_us,
             ProcessingStepType::ActionSelection => self.action_selection_duration_us = duration_us,
             ProcessingStepType::MacroExecution => self.macro_execution_duration_us = duration_us,
-            ProcessingStepType::RewardProcessing => self.reward_processing_duration_us = duration_us,
-            ProcessingStepType::ExperienceCollection => self.experience_collection_duration_us = duration_us,
-            ProcessingStepType::ImageChangeDetection => self.image_change_detection_us = duration_us,
+            ProcessingStepType::RewardProcessing => {
+                self.reward_processing_duration_us = duration_us
+            }
+            ProcessingStepType::ExperienceCollection => {
+                self.experience_collection_duration_us = duration_us
+            }
+            ProcessingStepType::ImageChangeDetection => {
+                self.image_change_detection_us = duration_us
+            }
+            ProcessingStepType::ActionSending => {}
         }
     }
 
@@ -72,7 +79,7 @@ impl FrameMetrics {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ProcessingStepType {
     SceneAnalysis,
     PolicyInference,
@@ -81,4 +88,5 @@ pub enum ProcessingStepType {
     RewardProcessing,
     ExperienceCollection,
     ImageChangeDetection,
+    ActionSending,
 }

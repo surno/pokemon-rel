@@ -1,5 +1,6 @@
 use super::{FrameContext, MetricsCollector, ProcessingPipeline, UIPipelineAdapter};
 use crate::error::AppError;
+use crate::pipeline::services::orchestration::frame_context::ProcessingStepType;
 use crate::pipeline::{EnrichedFrame, GameAction};
 use std::{sync::Arc, time::Instant};
 use tokio::sync::mpsc;
@@ -58,13 +59,20 @@ impl AIPipelineOrchestrator {
 
         // Send action if one was selected
         if let Some(action) = processed_context.selected_action {
+            let action_start = Instant::now();
             self.action_transmitter
                 .send_action(client_id, action)
                 .await?;
+            let action_duration_us = action_start.elapsed().as_micros() as u64;
 
             // Notify metrics observers
             let mut collector = self.metrics_collector.lock().await;
             collector.notify_action_sent(client_id, action);
+            collector.notify_processing_step(
+                client_id,
+                ProcessingStepType::ActionSending,
+                action_duration_us,
+            );
         }
 
         // Notify metrics observers about frame completion and individual step timings
@@ -76,41 +84,41 @@ impl AIPipelineOrchestrator {
         collector.notify_frame_processed(client_id, &processed_context.metrics);
 
         // Notify individual processing step timings for bottleneck detection
-        use crate::pipeline::services::orchestration::frame_context::ProcessingStepType;
+        let metrics = &processed_context.metrics;
         collector.notify_processing_step(
             client_id,
             ProcessingStepType::SceneAnalysis,
-            processed_context.metrics.scene_analysis_duration_us,
+            metrics.scene_analysis_duration_us,
         );
         collector.notify_processing_step(
             client_id,
             ProcessingStepType::PolicyInference,
-            processed_context.metrics.policy_inference_duration_us,
+            metrics.policy_inference_duration_us,
         );
         collector.notify_processing_step(
             client_id,
             ProcessingStepType::ActionSelection,
-            processed_context.metrics.action_selection_duration_us,
+            metrics.action_selection_duration_us,
         );
         collector.notify_processing_step(
             client_id,
             ProcessingStepType::MacroExecution,
-            processed_context.metrics.macro_execution_duration_us,
+            metrics.macro_execution_duration_us,
         );
         collector.notify_processing_step(
             client_id,
             ProcessingStepType::RewardProcessing,
-            processed_context.metrics.reward_processing_duration_us,
+            metrics.reward_processing_duration_us,
         );
         collector.notify_processing_step(
             client_id,
             ProcessingStepType::ExperienceCollection,
-            processed_context.metrics.experience_collection_duration_us,
+            metrics.experience_collection_duration_us,
         );
         collector.notify_processing_step(
             client_id,
             ProcessingStepType::ImageChangeDetection,
-            processed_context.metrics.image_change_detection_us,
+            metrics.image_change_detection_us,
         );
 
         info!(
