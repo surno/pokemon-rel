@@ -24,13 +24,17 @@ pub struct AIDecision {
     pub client_id: Uuid,
 }
 
+struct AIPipelineState {
+    decision_history: HashMap<Uuid, Vec<AIDecision>>,
+    stats: AIStats,
+    last_action_and_situation: HashMap<Uuid, (GameAction, GameSituation, EnrichedFrame)>,
+}
+
 #[derive(Clone)]
 pub struct AIPipelineService {
     smart_action_service: Arc<Mutex<SmartActionService>>,
-    decision_history: HashMap<Uuid, Vec<AIDecision>>,
+    state: Arc<Mutex<AIPipelineState>>,
     action_tx: mpsc::Sender<(Uuid, GameAction)>,
-    stats: AIStats,
-    last_action_and_situation: HashMap<Uuid, (GameAction, GameSituation, EnrichedFrame)>,
     image_hasher: Arc<PerceptualHasher>,
 }
 
@@ -46,15 +50,17 @@ impl AIPipelineService {
     pub fn new(action_tx: mpsc::Sender<(Uuid, GameAction)>) -> Self {
         Self {
             smart_action_service: Arc::new(Mutex::new(SmartActionService::new())),
-            decision_history: HashMap::new(),
+            state: Arc::new(Mutex::new(AIPipelineState {
+                decision_history: HashMap::new(),
+                stats: AIStats {
+                    total_frames_processed: 0,
+                    total_decisions_made: 0,
+                    average_confidence: 0.0,
+                    last_decision_time: None,
+                },
+                last_action_and_situation: HashMap::new(),
+            })),
             action_tx,
-            stats: AIStats {
-                total_frames_processed: 0,
-                total_decisions_made: 0,
-                average_confidence: 0.0,
-                last_decision_time: None,
-            },
-            last_action_and_situation: HashMap::new(),
             image_hasher: Arc::new(PerceptualHasher::default()),
         }
     }
@@ -74,14 +80,15 @@ impl AIPipelineService {
         let start_time = Instant::now();
         let client_id = frame.client;
 
-        self.stats.total_frames_processed += 1;
+        let mut state = self.state.lock().unwrap();
+        state.stats.total_frames_processed += 1;
 
         let (current_situation, decision) = {
             let mut smart_service = self.smart_action_service.lock().unwrap();
             let current_situation = smart_service.analyze_situation(&frame);
 
             if let Some((last_action, last_situation, last_frame)) =
-                self.last_action_and_situation.get(&client_id)
+                state.last_action_and_situation.get(&client_id)
             {
                 let last_hash = self.image_hasher.hash_from_img(&last_frame.image);
                 let current_hash = self.image_hasher.hash_from_img(&frame.image);
@@ -108,7 +115,7 @@ impl AIPipelineService {
             (current_situation, decision)
         };
 
-        self.last_action_and_situation.insert(
+        state.last_action_and_situation.insert(
             client_id,
             (decision.action.clone(), current_situation, frame.clone()),
         );
@@ -121,7 +128,8 @@ impl AIPipelineService {
             client_id,
         };
 
-        self.decision_history
+        state
+            .decision_history
             .entry(client_id)
             .or_default()
             .push(ai_decision);
@@ -136,25 +144,25 @@ impl AIPipelineService {
             client_id, decision.action, decision.confidence, decision.reasoning
         );
 
-        self.stats.total_decisions_made += 1;
-        self.update_average_confidence(decision.confidence);
-        self.stats.last_decision_time = Some(start_time);
+        state.stats.total_decisions_made += 1;
+        let new_confidence = decision.confidence;
+        let total = state.stats.total_decisions_made as f32;
+        let current_avg = state.stats.average_confidence;
+        state.stats.average_confidence = (current_avg * (total - 1.0) + new_confidence) / total;
+        state.stats.last_decision_time = Some(start_time);
 
         Ok(())
     }
 
-    fn update_average_confidence(&mut self, new_confidence: f32) {
-        let total = self.stats.total_decisions_made as f32;
-        let current_avg = self.stats.average_confidence;
-        self.stats.average_confidence = (current_avg * (total - 1.0) + new_confidence) / total;
-    }
-
     pub fn get_stats(&self) -> AIStats {
-        self.stats.clone()
+        self.state.lock().unwrap().stats.clone()
     }
 
     pub fn get_client_decisions(&self, client_id: &Uuid) -> Vec<AIDecision> {
-        self.decision_history
+        self.state
+            .lock()
+            .unwrap()
+            .decision_history
             .get(client_id)
             .cloned()
             .unwrap_or_default()
@@ -174,7 +182,7 @@ impl AIPipelineService {
         was_successful: bool,
     ) -> Result<(), AppError> {
         // Get the last decision for this client to record the result
-        if let Some(decisions) = self.decision_history.get(&client_id) {
+        if let Some(decisions) = self.state.lock().unwrap().decision_history.get(&client_id) {
             if let Some(last_decision) = decisions.last() {
                 let mut smart_service = self.smart_action_service.lock().unwrap();
 
