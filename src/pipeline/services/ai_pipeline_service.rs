@@ -58,6 +58,8 @@ pub struct AIStats {
     pub total_decisions_made: usize,
     pub average_confidence: f32,
     pub last_decision_time: Option<Instant>,
+    pub frames_per_sec: f32,
+    pub decisions_per_sec: f32,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -296,6 +298,8 @@ impl AIPipelineService {
             total_decisions_made: 0,
             average_confidence: 0.0,
             last_decision_time: None,
+            frames_per_sec: 0.0,
+            decisions_per_sec: 0.0,
         };
         Self {
             smart_action_service: Arc::new(Mutex::new(SmartActionService::new())),

@@ -54,15 +54,33 @@ impl EmulatorClient {
                             desmume.volume_set(0);
                             tracing::info!("Emulator client opened game, with unique id: {}", id);
                             while desmume.is_running() {
-                                if action_rx.try_recv().is_ok() {
-                                    tracing::info!(
-                                        "Emulator client received action, with unique id: {}",
-                                        id
-                                    );
+                                if let Ok(action) = action_rx.try_recv() {
+                                    // Map GameAction to keypad bitmask
+                                    let mask: u16 = match action {
+                                        GameAction::A => 1 << 0,
+                                        GameAction::B => 1 << 1,
+                                        GameAction::Select => 1 << 2,
+                                        GameAction::Start => 1 << 3,
+                                        GameAction::Right => 1 << 4,
+                                        GameAction::Left => 1 << 5,
+                                        GameAction::Up => 1 << 6,
+                                        GameAction::Down => 1 << 7,
+                                        GameAction::R => 1 << 8,
+                                        GameAction::L => 1 << 9,
+                                        GameAction::X => 1 << 10,
+                                        // If GameAction::Y does not exist, map nothing for that slot
+                                        _ => 0,
+                                    };
+                                    if mask != 0 {
+                                        desmume.input_mut().keypad_update(mask);
+                                        tracing::info!("Applied keypad mask {:#018b} for action {:?}", mask, action);
+                                    } else {
+                                        tracing::warn!("No keypad mapping for action {:?}", action);
+                                    }
                                 }
                                 desmume.cycle();
 
-                                // Release the  button
+                                // Release all buttons between cycles
                                 desmume.input_mut().keypad_update(0);
                                 desmume.cycle();
 

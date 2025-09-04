@@ -258,6 +258,8 @@ impl eframe::App for MultiClientApp {
                         "Average Confidence: {:.2}",
                         stats.average_confidence
                     ));
+                    ui.label(format!("Proc FPS: {:.1}", stats.frames_per_sec));
+                    ui.label(format!("Decision FPS: {:.1}", stats.decisions_per_sec));
 
                     if let Some(last_time) = stats.last_decision_time {
                         ui.label(format!(
