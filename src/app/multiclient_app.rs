@@ -228,78 +228,80 @@ impl eframe::App for MultiClientApp {
 
         if self.show_frame {
             egui::CentralPanel::default().show(ctx, |ui| {
-                if let Some(selected_client) = &self.selected_client {
-                    match self.frame_rx.try_recv() {
-                        Ok(frame) => {
-                            self.cached_frame = Some(frame);
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    if let Some(selected_client) = &self.selected_client {
+                        match self.frame_rx.try_recv() {
+                            Ok(frame) => {
+                                self.cached_frame = Some(frame);
+                            }
+                            Err(broadcast::error::TryRecvError::Lagged(n)) => {
+                                warn!("UI lagged behind, skipping {} frames", n);
+                            }
+                            Err(broadcast::error::TryRecvError::Closed) => {
+                                let err = AppError::Ui(
+                                    "Frame receiver disconnected. This can happen during shutdown."
+                                        .to_string(),
+                                );
+                                self.errors.push(err);
+                            }
+                            Err(broadcast::error::TryRecvError::Empty) => {}
                         }
-                        Err(broadcast::error::TryRecvError::Lagged(n)) => {
-                            warn!("UI lagged behind, skipping {} frames", n);
-                        }
-                        Err(broadcast::error::TryRecvError::Closed) => {
-                            let err = AppError::Ui(
-                                "Frame receiver disconnected. This can happen during shutdown."
-                                    .to_string(),
-                            );
-                            self.errors.push(err);
-                        }
-                        Err(broadcast::error::TryRecvError::Empty) => {}
-                    }
 
-                    // Display AI statistics (shared snapshot)
-                    ui.heading("AI Pipeline Statistics");
-                    let stats = self.ai_pipeline_service.get_stats_shared();
-                    ui.label(format!(
-                        "Frames Processed: {}",
-                        stats.total_frames_processed
-                    ));
-                    ui.label(format!("Decisions Made: {}", stats.total_decisions_made));
-                    ui.label(format!(
-                        "Average Confidence: {:.2}",
-                        stats.average_confidence
-                    ));
-                    ui.label(format!("Proc FPS: {:.1}", stats.frames_per_sec));
-                    ui.label(format!("Decision FPS: {:.1}", stats.decisions_per_sec));
-                    ui.label(format!("Actions Sent: {}", stats.total_actions_sent));
-
-                    if let Some(last_time) = stats.last_decision_time {
+                        // Display AI statistics (shared snapshot)
+                        ui.heading("AI Pipeline Statistics");
+                        let stats = self.ai_pipeline_service.get_stats_shared();
                         ui.label(format!(
-                            "Last Decision: {:?} ago",
-                            std::time::Instant::now().duration_since(last_time)
+                            "Frames Processed: {}",
+                            stats.total_frames_processed
                         ));
-                    }
+                        ui.label(format!("Decisions Made: {}", stats.total_decisions_made));
+                        ui.label(format!(
+                            "Average Confidence: {:.2}",
+                            stats.average_confidence
+                        ));
+                        ui.label(format!("Proc FPS: {:.1}", stats.frames_per_sec));
+                        ui.label(format!("Decision FPS: {:.1}", stats.decisions_per_sec));
+                        ui.label(format!("Actions Sent: {}", stats.total_actions_sent));
 
-                    ui.separator();
+                        if let Some(last_time) = stats.last_decision_time {
+                            ui.label(format!(
+                                "Last Decision: {:?} ago",
+                                std::time::Instant::now().duration_since(last_time)
+                            ));
+                        }
 
-                    // Recent Decisions (compact)
-                    ui.heading("Recent Decisions");
-                    if let Some(cid) = self.selected_client {
-                        let list = self.ai_pipeline_service.get_client_decisions(&cid);
-                        let shown = list.iter().rev().take(8);
-                        egui::Grid::new("recent_decisions_grid")
-                            .striped(true)
-                            .show(ui, |ui| {
-                                ui.label("Action");
-                                ui.label("Conf");
-                                ui.label("Reason");
-                                ui.end_row();
-                                for d in shown {
-                                    ui.label(format!("{:?}", d.action));
-                                    ui.label(format!("{:.2}", d.confidence));
-                                    ui.label(egui::RichText::new(&d.reasoning).small());
+                        ui.separator();
+
+                        // Recent Decisions (compact)
+                        ui.heading("Recent Decisions");
+                        if let Some(cid) = self.selected_client {
+                            let list = self.ai_pipeline_service.get_client_decisions(&cid);
+                            let shown = list.iter().rev().take(8);
+                            egui::Grid::new("recent_decisions_grid")
+                                .striped(true)
+                                .show(ui, |ui| {
+                                    ui.label("Action");
+                                    ui.label("Conf");
+                                    ui.label("Reason");
                                     ui.end_row();
-                                }
-                            });
-                    }
+                                    for d in shown {
+                                        ui.label(format!("{:?}", d.action));
+                                        ui.label(format!("{:.2}", d.confidence));
+                                        ui.label(egui::RichText::new(&d.reasoning).small());
+                                        ui.end_row();
+                                    }
+                                });
+                        }
 
-                    if let Some(frame) = &self.cached_frame {
-                        ui.heading(format!("Detailed View - Client {}", selected_client));
-                        let mut client_view = ClientView::new(*selected_client, frame.clone());
-                        client_view.draw(ui);
+                        if let Some(frame) = &self.cached_frame {
+                            ui.heading(format!("Detailed View - Client {}", selected_client));
+                            let mut client_view = ClientView::new(*selected_client, frame.clone());
+                            client_view.draw(ui);
+                        }
+                    } else {
+                        ui.heading("No client selected");
                     }
-                } else {
-                    ui.heading("No client selected");
-                }
+                });
             });
         }
         ctx.request_repaint();
