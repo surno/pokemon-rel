@@ -6,6 +6,7 @@ pub mod rl_service;
 // New refactored architecture
 pub mod factory;
 pub mod managers;
+pub mod optimization;
 pub mod orchestration;
 pub mod steps;
 
@@ -16,4 +17,5 @@ pub use rl_service::RLService;
 
 // Export new architecture components
 pub use factory::{AIPipelineFactory, PipelineConfiguration};
+pub use optimization::PerformanceOptimizedPipelineFactory;
 pub use orchestration::AIPipelineOrchestrator;

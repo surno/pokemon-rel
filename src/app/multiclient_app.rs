@@ -6,7 +6,7 @@ use crate::network::server::Server;
 use crate::pipeline::{
     EnrichedFrame, GameAction,
     services::{
-        AIPipelineFactory,
+        AIPipelineFactory, PerformanceOptimizedPipelineFactory,
         image::analysis::{SceneAnalysisConfig, SceneAnalysisOrchestrator},
         orchestration::UIPipelineAdapter,
     },
@@ -118,9 +118,10 @@ impl MultiClientApp {
         );
         emulator_client.start();
 
-        // Create AI pipeline using new architecture
-        let mut ai_pipeline = AIPipelineFactory::create_default_pipeline(action_tx.clone())
-            .expect("Failed to create AI pipeline");
+        // Create performance-optimized AI pipeline for maximum FPS
+        let mut ai_pipeline =
+            PerformanceOptimizedPipelineFactory::create_ultra_fast_pipeline(action_tx.clone())
+                .expect("Failed to create performance-optimized AI pipeline");
         let ai_pipeline_adapter = ai_pipeline.get_ui_adapter();
 
         // Spawn a task to route actions from the AI to the correct client
