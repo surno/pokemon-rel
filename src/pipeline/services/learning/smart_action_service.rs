@@ -244,10 +244,16 @@ impl SmartActionService {
 
         // Rules for Intro/Unknown scenes
         let mut intro_rules = Vec::new();
+        // Prefer Start in Intro to skip cutscenes
         intro_rules.push(ActionRule {
-            condition: Box::new(|situation| {
-                situation.scene == Scene::Intro || situation.scene == Scene::Unknown
-            }),
+            condition: Box::new(|situation| situation.scene == Scene::Intro),
+            action: GameAction::Start,
+            priority: 0,
+            description: "Press Start to skip intro".to_string(),
+        });
+        // Fallback to A if Start didn't work
+        intro_rules.push(ActionRule {
+            condition: Box::new(|situation| situation.scene == Scene::Intro),
             action: GameAction::A,
             priority: 1,
             description: "Press A to advance through intro".to_string(),

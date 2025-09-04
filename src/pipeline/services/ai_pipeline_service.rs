@@ -45,6 +45,11 @@ pub struct AIPipelineService {
     epsilon: f32,
     last_success: HashMap<Uuid, bool>,
     active_macros: HashMap<Uuid, ActiveMacroState>,
+    min_epsilon: f32,
+    epsilon_decay: f32,
+    failure_streak: HashMap<Uuid, u32>,
+    stats_shared: Arc<Mutex<AIStats>>,
+    debug_snapshot: Arc<Mutex<AIDebugSnapshot>>,
 }
 
 #[derive(Debug, Clone)]
@@ -55,8 +60,17 @@ pub struct AIStats {
     pub last_decision_time: Option<Instant>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct AIDebugSnapshot {
+    pub epsilon: f32,
+    pub last_client: Option<Uuid>,
+    pub active_macro: Option<(MacroAction, u32)>,
+    pub failure_streak: u32,
+    pub median_distance: Option<usize>,
+}
+
 impl AIPipelineService {
-    fn candidate_macros() -> [MacroAction; 7] {
+    fn candidate_macros() -> [MacroAction; 8] {
         [
             MacroAction::AdvanceDialog,
             MacroAction::WalkUp,
@@ -65,6 +79,7 @@ impl AIPipelineService {
             MacroAction::WalkRight,
             MacroAction::MenuSelect,
             MacroAction::MenuBack,
+            MacroAction::PressStart,
         ]
     }
     fn situation_signature(situation: &GameSituation) -> u64 {
@@ -104,6 +119,7 @@ impl AIPipelineService {
             GameAction::Left => MacroAction::WalkLeft,
             GameAction::Right => MacroAction::WalkRight,
             GameAction::B => MacroAction::MenuBack,
+            GameAction::Start => MacroAction::PressStart,
             _ => MacroAction::MenuSelect,
         }
     }
@@ -117,6 +133,7 @@ impl AIPipelineService {
             MacroAction::WalkRight => GameAction::Right,
             MacroAction::MenuSelect => GameAction::A,
             MacroAction::MenuBack => GameAction::B,
+            MacroAction::PressStart => GameAction::Start,
         }
     }
 
@@ -158,6 +175,7 @@ impl AIPipelineService {
             MacroAction::AdvanceDialog => 1,
             MacroAction::MenuSelect => 1,
             MacroAction::MenuBack => 1,
+            MacroAction::PressStart => 1,
             MacroAction::WalkUp
             | MacroAction::WalkDown
             | MacroAction::WalkLeft
@@ -204,7 +222,26 @@ impl AIPipelineService {
 
         // Select a new macro and initialize its ticks
         let (mac, act) = self.select_macro_and_action(situation, default_action);
-        let ticks = self.default_ticks_for_macro(mac);
+        // Clamp walk duration if failing often
+        let base_ticks = self.default_ticks_for_macro(mac);
+        let ticks = if matches!(
+            mac,
+            MacroAction::WalkUp
+                | MacroAction::WalkDown
+                | MacroAction::WalkLeft
+                | MacroAction::WalkRight
+        ) {
+            let s = *self.failure_streak.get(&client_id).unwrap_or(&0);
+            if s >= 40 {
+                2
+            } else if s >= 20 {
+                4
+            } else {
+                base_ticks
+            }
+        } else {
+            base_ticks
+        };
         let sig = Self::situation_signature(situation);
         let q = *self.q_values.get(&(sig, mac)).unwrap_or(&0.0);
         info!("Chose macro {:?} (ticks={}) with Q={:.3}", mac, ticks, q);
@@ -227,27 +264,36 @@ impl AIPipelineService {
             let sig = Self::situation_signature(last_situation);
             let macro_act = self.map_action_to_macro(last_action, last_situation);
             // Use last_success flag; otherwise small penalty
-            let reward: f32 = if *self.last_success.get(client_id).unwrap_or(&false) {
-                1.0
-            } else {
-                -0.01
-            };
+            let success = *self.last_success.get(client_id).unwrap_or(&false);
+            let reward: f32 = if success { 1.0 } else { -0.01 };
             let alpha = 0.2f32;
             let q = self.q_values.entry((sig, macro_act)).or_insert(0.0);
             *q = *q + alpha * (reward - *q);
+            // Update failure streak and epsilon decay
+            let streak = self.failure_streak.entry(*client_id).or_insert(0);
+            if success {
+                *streak = 0;
+                self.epsilon = (self.epsilon * self.epsilon_decay).max(self.min_epsilon);
+            } else {
+                *streak = streak.saturating_add(1);
+                if *streak % 20 == 0 {
+                    self.epsilon = (self.epsilon + 0.02).min(0.5);
+                }
+            }
         }
     }
     pub fn new(action_tx: mpsc::Sender<(Uuid, GameAction)>) -> Self {
+        let stats = AIStats {
+            total_frames_processed: 0,
+            total_decisions_made: 0,
+            average_confidence: 0.0,
+            last_decision_time: None,
+        };
         Self {
             smart_action_service: Arc::new(Mutex::new(SmartActionService::new())),
             decision_history: HashMap::new(),
             action_tx,
-            stats: AIStats {
-                total_frames_processed: 0,
-                total_decisions_made: 0,
-                average_confidence: 0.0,
-                last_decision_time: None,
-            },
+            stats: stats.clone(),
             last_action_and_situation: HashMap::new(),
             image_hasher: Arc::new(PerceptualHasher::default()),
             hash_distance_history: HashMap::new(),
@@ -255,6 +301,11 @@ impl AIPipelineService {
             epsilon: 0.2,
             last_success: HashMap::new(),
             active_macros: HashMap::new(),
+            min_epsilon: 0.05,
+            epsilon_decay: 0.999,
+            failure_streak: HashMap::new(),
+            stats_shared: Arc::new(Mutex::new(stats)),
+            debug_snapshot: Arc::new(Mutex::new(AIDebugSnapshot::default())),
         }
     }
 
@@ -302,9 +353,16 @@ impl AIPipelineService {
                 let median_distance = sorted[sorted.len() / 2];
                 let image_changed = median_distance > 5; // threshold can be tuned
 
-                let was_successful = smart_service
+                // Success definition for Intro: if we move from Intro -> not Intro or menus/dialog appear
+                let intro_skipped = last_situation.scene == crate::pipeline::types::Scene::Intro
+                    && current_situation.scene != crate::pipeline::types::Scene::Intro;
+                let menu_or_dialog_now = current_situation.has_menu || current_situation.in_dialog;
+                let was_successful = (smart_service
                     .is_action_successful(last_situation, &current_situation)
-                    && image_changed;
+                    && image_changed)
+                    || intro_skipped
+                    || (last_situation.scene == crate::pipeline::types::Scene::Intro
+                        && menu_or_dialog_now);
                 self.last_success.insert(client_id, was_successful);
                 smart_service.record_experience(
                     last_situation.clone(),
@@ -380,6 +438,35 @@ impl AIPipelineService {
         self.stats.total_decisions_made += 1;
         self.update_average_confidence(decision.confidence);
         self.stats.last_decision_time = Some(start_time);
+        // mirror stats into shared copy for UI
+        self.stats_shared
+            .lock()
+            .map(|mut s| *s = self.stats.clone())
+            .ok();
+
+        // Update debug snapshot for UI
+        self.debug_snapshot
+            .lock()
+            .map(|mut snap| {
+                snap.epsilon = self.epsilon;
+                snap.last_client = Some(client_id);
+                snap.active_macro = self
+                    .active_macros
+                    .get(&client_id)
+                    .map(|st| (st.action, st.ticks_left));
+                snap.failure_streak = *self.failure_streak.get(&client_id).unwrap_or(&0);
+                snap.median_distance =
+                    self.hash_distance_history.get(&client_id).and_then(|hist| {
+                        if hist.is_empty() {
+                            None
+                        } else {
+                            let mut v: Vec<usize> = hist.iter().copied().collect();
+                            v.sort_unstable();
+                            Some(v[v.len() / 2])
+                        }
+                    });
+            })
+            .ok();
 
         Ok(())
     }
@@ -392,6 +479,20 @@ impl AIPipelineService {
 
     pub fn get_stats(&self) -> AIStats {
         self.stats.clone()
+    }
+
+    pub fn get_stats_shared(&self) -> AIStats {
+        self.stats_shared
+            .lock()
+            .map(|s| s.clone())
+            .unwrap_or_else(|_| self.stats.clone())
+    }
+
+    pub fn get_debug_snapshot(&self) -> AIDebugSnapshot {
+        self.debug_snapshot
+            .lock()
+            .map(|s| s.clone())
+            .unwrap_or_default()
     }
 
     pub fn get_client_decisions(&self, client_id: &Uuid) -> Vec<AIDecision> {

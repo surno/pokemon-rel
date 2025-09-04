@@ -193,6 +193,26 @@ impl eframe::App for MultiClientApp {
                             );
                         }
                     });
+
+                ui.add_space(4.0);
+                ui.separator();
+                ui.add_space(4.0);
+
+                // Compact AI status row
+                let dbg = self.ai_pipeline_service.get_debug_snapshot();
+                ui.horizontal_wrapped(|ui| {
+                    ui.strong("AI Status:");
+                    ui.label(format!("epsilon {:.2}", dbg.epsilon));
+                    if let Some((mac, ticks)) = dbg.active_macro {
+                        ui.label(format!("macro {:?} ({} ticks)", mac, ticks));
+                    } else {
+                        ui.label("macro -");
+                    }
+                    ui.label(format!("fail streak {}", dbg.failure_streak));
+                    if let Some(md) = dbg.median_distance {
+                        ui.label(format!("median Δ {}", md));
+                    }
+                });
             });
 
         egui::TopBottomPanel::bottom("error_panel")
@@ -226,9 +246,9 @@ impl eframe::App for MultiClientApp {
                         Err(broadcast::error::TryRecvError::Empty) => {}
                     }
 
-                    // Display AI statistics
+                    // Display AI statistics (shared snapshot)
                     ui.heading("AI Pipeline Statistics");
-                    let stats = self.ai_pipeline_service.get_stats();
+                    let stats = self.ai_pipeline_service.get_stats_shared();
                     ui.label(format!(
                         "Frames Processed: {}",
                         stats.total_frames_processed

@@ -10,4 +10,6 @@ pub enum MacroAction {
     // Menu interactions
     MenuSelect,
     MenuBack,
+    // Skip intros or open main menu
+    PressStart,
 }
