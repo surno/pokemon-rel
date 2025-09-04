@@ -2,7 +2,7 @@ use crate::{
     error::AppError,
     pipeline::{EnrichedFrame, Scene, State},
 };
-use image::{DynamicImage, RgbImage};
+use image::{DynamicImage, GrayImage, RgbImage};
 use std::{
     future::Future,
     pin::Pin,
@@ -45,9 +45,11 @@ impl SceneAnnotationService {
 
     fn detect_scene(&self, frame: &DynamicImage) -> Scene {
         // Heuristic detection: analyze image features
-        let has_text = self.detect_text_simple(frame);
-        let has_menu = self.detect_menu_simple(frame);
-        let has_dialog = self.detect_dialog_box_bottom(frame);
+        // Convert once
+        let rgb = frame.to_rgb8();
+        let has_text = self.detect_text_simple(&rgb);
+        let has_menu = self.detect_menu_simple(&rgb);
+        let has_dialog = self.detect_dialog_box_bottom(&rgb);
 
         if has_text && has_menu {
             // Typical battle UI presents both menu and text
@@ -62,9 +64,8 @@ impl SceneAnnotationService {
         Scene::Unknown
     }
 
-    fn detect_text_simple(&self, image: &DynamicImage) -> bool {
+    fn detect_text_simple(&self, rgb_image: &RgbImage) -> bool {
         // Simple text detection: look for areas with high contrast
-        let rgb_image = image.to_rgb8();
         let (width, height) = rgb_image.dimensions();
 
         let mut high_contrast_count = 0;
@@ -101,9 +102,8 @@ impl SceneAnnotationService {
         high_contrast_count as f32 / total_samples as f32 > 0.2
     }
 
-    fn detect_menu_simple(&self, image: &DynamicImage) -> bool {
+    fn detect_menu_simple(&self, rgb_image: &RgbImage) -> bool {
         // Simple menu detection: look for rectangular patterns
-        let rgb_image = image.to_rgb8();
         let (width, height) = rgb_image.dimensions();
 
         let mut menu_indicators = 0;
@@ -153,9 +153,8 @@ impl SceneAnnotationService {
         border_pixels > 0 && (high_contrast_border as f32 / border_pixels as f32) >= 0.7
     }
 
-    fn detect_dialog_box_bottom(&self, image: &DynamicImage) -> bool {
+    fn detect_dialog_box_bottom(&self, rgb: &RgbImage) -> bool {
         // Look for a wide high-contrast band near the bottom
-        let rgb = image.to_rgb8();
         let (w, h) = rgb.dimensions();
         if h < 32 || w < 64 {
             return false;
@@ -171,7 +170,7 @@ impl SceneAnnotationService {
             // sample columns
             let mut transitions = 0u32;
             let mut last_brightness: Option<f32> = None;
-            for x in (0..w).step_by(4) {
+            for x in (0..w).step_by(6) {
                 let p = rgb.get_pixel(x, y);
                 let b = (p[0] as f32 + p[1] as f32 + p[2] as f32) / 3.0;
                 if let Some(lb) = last_brightness {

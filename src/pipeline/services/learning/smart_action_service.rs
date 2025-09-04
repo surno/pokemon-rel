@@ -2,6 +2,7 @@ use crate::{
     error::AppError,
     pipeline::{EnrichedFrame, GameAction, Scene},
 };
+use image::{GrayImage, RgbImage};
 use rand::Rng;
 use std::{
     collections::{HashMap, VecDeque},
@@ -304,11 +305,13 @@ impl SmartActionService {
             .as_ref()
             .map(|s| s.scene)
             .unwrap_or(Scene::Unknown);
-
-        // Heuristics
-        let has_text = self.detect_text_simple(&frame.image);
-        let has_menu = self.detect_menu_simple(&frame.image);
-        let in_dialog = self.detect_dialog_box_bottom(&frame.image);
+        // Convert once per frame for downstream detectors
+        let rgb = frame.image.to_rgb8();
+        let gray = frame.image.to_luma8();
+        // Heuristics using precomputed images
+        let has_text = self.detect_text_simple(&rgb);
+        let has_menu = self.detect_menu_simple(&rgb);
+        let in_dialog = self.detect_dialog_box_bottom(&rgb);
 
         // Heuristic order:
         // - If we detect both text and a menu, it's likely a battle UI
@@ -321,7 +324,7 @@ impl SmartActionService {
         } else if scene == Scene::Unknown && has_menu {
             scene = Scene::MainMenu;
         }
-        let cursor_row = self.detect_menu_cursor_row(&frame.image);
+        let cursor_row = self.detect_menu_cursor_row(&gray);
         let has_buttons = has_menu; // Simple assumption for now
 
         let dominant_colors = self.get_dominant_colors_simple(&frame.image);
@@ -339,9 +342,8 @@ impl SmartActionService {
         }
     }
 
-    fn detect_text_simple(&self, image: &image::DynamicImage) -> bool {
+    fn detect_text_simple(&self, rgb_image: &RgbImage) -> bool {
         // Simple text detection: look for areas with high contrast
-        let rgb_image = image.to_rgb8();
         let (width, height) = rgb_image.dimensions();
 
         let mut high_contrast_count = 0;
@@ -378,9 +380,8 @@ impl SmartActionService {
         high_contrast_count as f32 / total_samples as f32 > 0.2
     }
 
-    fn detect_menu_simple(&self, image: &image::DynamicImage) -> bool {
+    fn detect_menu_simple(&self, rgb_image: &RgbImage) -> bool {
         // Simple menu detection: look for rectangular patterns
-        let rgb_image = image.to_rgb8();
         let (width, height) = rgb_image.dimensions();
 
         let mut menu_indicators = 0;
@@ -396,10 +397,9 @@ impl SmartActionService {
         menu_indicators >= 2 // At least 2 menu-like items
     }
 
-    fn detect_menu_cursor_row(&self, image: &image::DynamicImage) -> Option<u32> {
+    fn detect_menu_cursor_row(&self, gray: &GrayImage) -> Option<u32> {
         // Heuristic: in menus, the highlighted row tends to be a bright/dark band.
         // We compute row brightness and look for the row with strongest local contrast.
-        let gray = image.to_luma8();
         let (w, h) = gray.dimensions();
         if h < 32 || w < 64 {
             return None;
@@ -456,7 +456,7 @@ impl SmartActionService {
         if best_score > 40.0 { best_row } else { None }
     }
 
-    fn looks_like_menu_item(&self, image: &image::RgbImage, x: u32, y: u32) -> bool {
+    fn looks_like_menu_item(&self, image: &RgbImage, x: u32, y: u32) -> bool {
         let size = 16;
         if x + size > image.width() || y + size > image.height() {
             return false;
@@ -490,9 +490,8 @@ impl SmartActionService {
         border_pixels > 0 && (high_contrast_border as f32 / border_pixels as f32) >= 0.7
     }
 
-    fn detect_dialog_box_bottom(&self, image: &image::DynamicImage) -> bool {
+    fn detect_dialog_box_bottom(&self, rgb: &RgbImage) -> bool {
         // Very simple heuristic: look for a wide high-contrast band near the bottom
-        let rgb = image.to_rgb8();
         let (w, h) = rgb.dimensions();
         if h < 32 || w < 64 {
             return false;
@@ -508,7 +507,7 @@ impl SmartActionService {
             // sample columns
             let mut transitions = 0u32;
             let mut last_brightness: Option<f32> = None;
-            for x in (0..w).step_by(4) {
+            for x in (0..w).step_by(6) {
                 let p = rgb.get_pixel(x, y);
                 let b = (p[0] as f32 + p[1] as f32 + p[2] as f32) / 3.0;
                 if let Some(lb) = last_brightness {

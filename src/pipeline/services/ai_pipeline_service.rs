@@ -15,6 +15,7 @@ use crate::{
         },
     },
 };
+use image::DynamicImage;
 use imghash::{ImageHasher, perceptual::PerceptualHasher};
 use rand::random;
 use std::{
@@ -48,7 +49,8 @@ pub struct AIPipelineService {
     decision_history: Arc<Mutex<HashMap<Uuid, Vec<AIDecision>>>>,
     action_tx: mpsc::Sender<(Uuid, GameAction)>,
     stats: AIStats,
-    last_action_and_situation: HashMap<Uuid, (GameAction, GameSituation, EnrichedFrame)>,
+    // Cache a downscaled copy of the last frame to avoid resizing every time
+    last_action_and_situation: HashMap<Uuid, (GameAction, GameSituation, DynamicImage)>,
     image_hasher: Arc<PerceptualHasher>,
     hash_distance_history: HashMap<Uuid, VecDeque<usize>>, // rolling window per client
     // Simple tabular learner keyed by situation signature + macro action
@@ -381,74 +383,82 @@ impl AIPipelineService {
         // Count a processed frame for FPS
         self.fps_frames += 1;
 
-        let (current_situation, decision) = {
+        // First, analyze the situation (brief lock)
+        let current_situation = {
             let mut smart_service = self.smart_action_service.lock().unwrap();
-            let current_situation = smart_service.analyze_situation(&frame);
+            smart_service.analyze_situation(&frame)
+        };
 
-            if let Some((last_action, last_situation, last_frame)) =
-                self.last_action_and_situation.get(&client_id)
+        // Compute image-change signal outside the lock; reuse cached downscaled last image
+        if let Some((last_action, last_situation, last_small)) =
+            self.last_action_and_situation.get(&client_id)
+        {
+            // Downscale current frame once (smaller for speed) and compare to last_small
+            let small_curr = frame
+                .image
+                .resize(64, 64, image::imageops::FilterType::Nearest);
+            let last_hash = self.image_hasher.hash_from_img(last_small);
+            let current_hash = self.image_hasher.hash_from_img(&small_curr);
+            let distance = last_hash.distance(&current_hash).unwrap_or(0);
+
+            // Maintain rolling window of distances
+            let history = self
+                .hash_distance_history
+                .entry(client_id)
+                .or_insert_with(|| VecDeque::with_capacity(5));
+            if history.len() >= 5 {
+                let _ = history.pop_front();
+            }
+            history.push_back(distance);
+
+            // Compute median distance for stability
+            let mut sorted: Vec<usize> = history.iter().copied().collect();
+            sorted.sort_unstable();
+            let median_distance = sorted[sorted.len() / 2];
+            let image_changed = median_distance > 5; // threshold can be tuned
+
+            // Success definition for Intro: if we move from Intro -> not Intro or menus/dialog appear
+            let intro_skipped = last_situation.scene == crate::pipeline::types::Scene::Intro
+                && current_situation.scene != crate::pipeline::types::Scene::Intro;
+            let menu_or_dialog_now = current_situation.has_menu || current_situation.in_dialog;
+
+            // Briefly lock to use SmartActionService's success heuristic and record experience
+            let was_successful = {
+                let smart_service = self.smart_action_service.lock().unwrap();
+                smart_service.is_action_successful(last_situation, &current_situation)
+            } && image_changed
+                || intro_skipped
+                || (last_situation.scene == crate::pipeline::types::Scene::Intro
+                    && menu_or_dialog_now);
+
+            self.last_success.insert(client_id, was_successful);
             {
-                // Downscale before hashing for speed; DS top+bottom is tall, so scale down keeping aspect.
-                let small_last =
-                    last_frame
-                        .image
-                        .resize(128, 128, image::imageops::FilterType::Nearest);
-                let small_curr = frame
-                    .image
-                    .resize(128, 128, image::imageops::FilterType::Nearest);
-                let last_hash = self.image_hasher.hash_from_img(&small_last);
-                let current_hash = self.image_hasher.hash_from_img(&small_curr);
-                let distance = last_hash.distance(&current_hash).unwrap_or(0);
-
-                // Maintain rolling window of distances
-                let history = self
-                    .hash_distance_history
-                    .entry(client_id)
-                    .or_insert_with(|| VecDeque::with_capacity(5));
-                if history.len() >= 5 {
-                    let _ = history.pop_front();
-                }
-                history.push_back(distance);
-
-                // Compute median distance for stability
-                let mut sorted: Vec<usize> = history.iter().copied().collect();
-                sorted.sort_unstable();
-                let median_distance = sorted[sorted.len() / 2];
-                let image_changed = median_distance > 5; // threshold can be tuned
-
-                // Success definition for Intro: if we move from Intro -> not Intro or menus/dialog appear
-                let intro_skipped = last_situation.scene == crate::pipeline::types::Scene::Intro
-                    && current_situation.scene != crate::pipeline::types::Scene::Intro;
-                let menu_or_dialog_now = current_situation.has_menu || current_situation.in_dialog;
-                let was_successful = (smart_service
-                    .is_action_successful(last_situation, &current_situation)
-                    && image_changed)
-                    || intro_skipped
-                    || (last_situation.scene == crate::pipeline::types::Scene::Intro
-                        && menu_or_dialog_now);
-                self.last_success.insert(client_id, was_successful);
+                let mut smart_service = self.smart_action_service.lock().unwrap();
                 smart_service.record_experience(
                     last_situation.clone(),
                     last_action.clone(),
                     was_successful,
                 );
-                info!(
-                    "Client {}: Action {:?} was successful: {} (image changed: {})",
-                    client_id, last_action, was_successful, image_changed
-                );
             }
+            info!(
+                "Client {}: Action {:?} was successful: {} (image changed: {})",
+                client_id, last_action, was_successful, image_changed
+            );
+        }
 
-            // Track Intro scene persistence window
-            if current_situation.scene == crate::pipeline::types::Scene::Intro {
-                self.intro_scene_since
-                    .entry(client_id)
-                    .or_insert(start_time);
-            } else {
-                self.intro_scene_since.remove(&client_id);
-            }
+        // Track Intro scene persistence window
+        if current_situation.scene == crate::pipeline::types::Scene::Intro {
+            self.intro_scene_since
+                .entry(client_id)
+                .or_insert(start_time);
+        } else {
+            self.intro_scene_since.remove(&client_id);
+        }
 
-            let decision = smart_service.make_decision(&current_situation);
-            (current_situation, decision)
+        // Make a decision (brief lock)
+        let decision = {
+            let mut smart_service = self.smart_action_service.lock().unwrap();
+            smart_service.make_decision(&current_situation)
         };
 
         let ai_decision = AIDecision {
@@ -499,13 +509,16 @@ impl AIPipelineService {
             let mut collector = self.experience_collector.lock().await;
             collector.collect_experience(exp).await;
         }
-        // Now record current as the last action and situation for next step
+        // Now record current as the last action and situation for next step (cache downscaled image)
+        let small_curr_for_cache = frame
+            .image
+            .resize(64, 64, image::imageops::FilterType::Nearest);
         self.last_action_and_situation.insert(
             client_id,
             (
                 decision.action.clone(),
                 selection_situation.clone(),
-                frame.clone(),
+                small_curr_for_cache,
             ),
         );
         // If intro persists longer than 2s, force a PressStart action override
