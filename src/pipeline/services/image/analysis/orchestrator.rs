@@ -1,13 +1,16 @@
 /// Scene Analysis Orchestrator - replaces the monolithic SceneAnnotationService
 use super::{
     analyzers::{EnvironmentDetector, HPBarDetector, LocationDetector, MenuDetector, TextDetector},
+    bag_menu_detector::BagMenuDetector,
     config::SceneAnalysisConfig,
     core::{DetectionContext, DetectionResult, GameStateAnalyzer, SceneDetector},
     detectors::{
         BattleSceneDetector, IntroSceneDetector, MenuSceneDetector, OverworldSceneDetector,
         PokemonStateAnalyzer,
     },
+    menu_cursor_detector::MenuCursorDetector,
     pipeline::DetectionPipeline,
+    shiny_detector::ShinyDetector,
 };
 use crate::{
     error::AppError,
@@ -83,6 +86,18 @@ impl SceneAnalysisOrchestrator {
                 | super::config::DetectorType::Indoor => {
                     detection_pipeline =
                         detection_pipeline.add_detector(Box::new(EnvironmentDetector::new()));
+                }
+                super::config::DetectorType::Shiny => {
+                    detection_pipeline =
+                        detection_pipeline.add_detector(Box::new(ShinyDetector::new()));
+                }
+                super::config::DetectorType::BagMenu => {
+                    detection_pipeline =
+                        detection_pipeline.add_detector(Box::new(BagMenuDetector::new()));
+                }
+                super::config::DetectorType::MenuCursor => {
+                    detection_pipeline =
+                        detection_pipeline.add_detector(Box::new(MenuCursorDetector::new()));
                 }
                 _ => {
                     // Skip unsupported detector types for now

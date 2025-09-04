@@ -27,6 +27,9 @@ pub enum DetectorType {
     Town,
     Route,
     Building,
+    Shiny,
+    Pokemon,
+    BagMenu,
 }
 
 #[derive(Debug, Clone)]
@@ -87,12 +90,12 @@ impl Default for RegionSamplingConfig {
 impl Default for ColorThresholds {
     fn default() -> Self {
         Self {
-            hp_bar_green_threshold: 150,
-            hp_bar_red_threshold: 150,
-            text_contrast_threshold: 100,
-            menu_border_threshold: 80,
-            grass_green_min: 100,
-            water_blue_min: 120,
+            hp_bar_green_threshold: 120, // Lowered for DS color palette
+            hp_bar_red_threshold: 130,   // Adjusted for DS red
+            text_contrast_threshold: 70, // Lowered for DS text
+            menu_border_threshold: 60,   // DS menu borders are softer
+            grass_green_min: 60,         // DS grass is less saturated
+            water_blue_min: 80,          // DS water is darker
         }
     }
 }
@@ -141,6 +144,9 @@ impl SceneAnalysisConfig {
                 DetectorType::Town,
                 DetectorType::Route,
                 DetectorType::Building,
+                DetectorType::Shiny,
+                DetectorType::Pokemon,
+                DetectorType::BagMenu,
             ],
             region_sampling: RegionSamplingConfig {
                 sample_step: 2,
@@ -166,6 +172,10 @@ impl SceneAnalysisConfig {
                 DetectorType::TallGrass,
                 DetectorType::PokemonCenter,
                 DetectorType::Gym,
+                DetectorType::Shiny,
+                DetectorType::Pokemon,
+                DetectorType::BagMenu,
+                DetectorType::MenuCursor,
             ],
             region_sampling: RegionSamplingConfig::default(),
             color_thresholds: ColorThresholds {

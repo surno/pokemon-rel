@@ -52,6 +52,11 @@ pub trait ImageAnalyzer {
             DetectionSignalType::BattleTurn => "Battle Turn",
             DetectionSignalType::MenuOption => "Menu Option",
             DetectionSignalType::PlayerPosition => "Player Position",
+            DetectionSignalType::ShinyEffect => "Shiny Effect",
+            DetectionSignalType::WildPokemonEncounter => "Wild Pokemon Encounter",
+            DetectionSignalType::PokemonSpecies => "Pokemon Species",
+            DetectionSignalType::PokemonFainted => "Pokemon Fainted",
+            DetectionSignalType::BagMenu => "Bag Menu",
         }
     }
 }
@@ -139,8 +144,8 @@ impl VisualDetector for HPBarDetector {
     fn detect(&self, context: &DetectionContext) -> DetectionResult<Vec<DetectionSignal>> {
         let start_time = std::time::Instant::now();
 
-        // Focus on top quarter where HP bars typically appear
-        let region = ImageRegion::top_quarter(context.dimensions.0, context.dimensions.1);
+        // In Pokemon Black, HP bars are on the top screen.
+        let region = ImageRegion::top_screen(context.dimensions.0, context.dimensions.1);
         let detection = self.detect_in_region(&context.rgb, region);
 
         let signals = if detection.result {
@@ -151,7 +156,17 @@ impl VisualDetector for HPBarDetector {
                 metadata: DetectionMetadata::None,
             }]
         } else {
-            vec![]
+            // If we are in a battle but there is no HP bar, it could mean a Pokemon fainted.
+            if context.has_signal(DetectionSignalType::BattleMenu) {
+                vec![DetectionSignal {
+                    signal_type: DetectionSignalType::PokemonFainted,
+                    confidence: 1.0 - detection.confidence,
+                    location: Some(region),
+                    metadata: DetectionMetadata::None,
+                }]
+            } else {
+                vec![]
+            }
         };
 
         DetectionResult::new(signals, detection.confidence, detection.reasoning)
@@ -253,11 +268,10 @@ impl VisualDetector for TextDetector {
         let start_time = std::time::Instant::now();
         let mut signals = Vec::new();
 
-        // Check multiple regions for text
+        // Check both screens for text, but dialog is usually on the bottom.
         let regions = vec![
-            ImageRegion::full_image(context.dimensions.0, context.dimensions.1),
-            ImageRegion::bottom_quarter(context.dimensions.0, context.dimensions.1),
-            ImageRegion::center_half(context.dimensions.0, context.dimensions.1),
+            ImageRegion::bottom_screen(context.dimensions.0, context.dimensions.1),
+            ImageRegion::top_screen(context.dimensions.0, context.dimensions.1),
         ];
 
         for region in regions {
@@ -396,8 +410,8 @@ impl VisualDetector for MenuDetector {
     fn detect(&self, context: &DetectionContext) -> DetectionResult<Vec<DetectionSignal>> {
         let start_time = std::time::Instant::now();
 
-        // Check bottom quarter for battle menus
-        let bottom_region = ImageRegion::bottom_quarter(context.dimensions.0, context.dimensions.1);
+        // Battle menus are on the bottom screen in Pokemon Black
+        let bottom_region = ImageRegion::bottom_screen(context.dimensions.0, context.dimensions.1);
         let detection = self.detect_in_region(&context.rgb, bottom_region);
 
         let signals = if detection.result {

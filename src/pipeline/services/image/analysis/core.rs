@@ -122,6 +122,13 @@ pub enum DetectionSignalType {
     BattleTurn,
     MenuOption,
     PlayerPosition,
+
+    // Pokemon Specific
+    ShinyEffect,
+    WildPokemonEncounter,
+    PokemonSpecies,
+    PokemonFainted,
+    BagMenu,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -167,6 +174,16 @@ impl ImageRegion {
 
     pub fn center_half(width: u32, height: u32) -> Self {
         Self::new(width / 4, height / 4, width / 2, height / 2)
+    }
+
+    pub fn top_screen(width: u32, height: u32) -> Self {
+        // Assumes a vertically stacked dual screen layout
+        Self::new(0, 0, width, height / 2)
+    }
+
+    pub fn bottom_screen(width: u32, height: u32) -> Self {
+        // Assumes a vertically stacked dual screen layout
+        Self::new(0, height / 2, width, height / 2)
     }
 
     pub fn contains_point(&self, x: u32, y: u32) -> bool {
