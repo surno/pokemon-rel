@@ -7,14 +7,12 @@ use crate::error::AppError;
 use crate::intake::client::manager::ClientManagerHandle;
 use crate::intake::client::supervisor::ClientSupervisorCommand;
 use crate::pipeline::ActionService;
-use crate::pipeline::services::image::{SceneAnnotationService, SceneAnnotationServiceBuilder};
 use crate::pipeline::services::learning::experience_collector::ExperienceCollector;
 use crate::pipeline::services::learning::reward::calculator::navigation_reward::NavigationRewardCalculator;
 use crate::pipeline::services::learning::reward::processor::multi_objective_reward_processor::MultiObjectiveRewardProcessor;
 use crate::pipeline::types::{EnrichedFrame, GameAction};
 
 pub struct AppController {
-    scene_annotation_service: SceneAnnotationService,
     reward_processor: MultiObjectiveRewardProcessor,
     experience_collector: Arc<RwLock<ExperienceCollector>>,
     action_service: ActionService,
@@ -28,11 +26,9 @@ impl AppController {
         result_tx: Sender<EnrichedFrame>,
         frame_rx: Receiver<EnrichedFrame>,
         action_tx: mpsc::Sender<ClientSupervisorCommand>,
-        scene_annotation_service: SceneAnnotationService,
     ) -> Self {
         let (training_tx, _training_rx) = mpsc::channel(1000);
         Self {
-            scene_annotation_service,
             reward_processor: MultiObjectiveRewardProcessor::new(Box::new(
                 NavigationRewardCalculator::default(),
             )),
@@ -52,7 +48,8 @@ impl AppController {
             if let Some(frame) = self.frame_rx.recv().await {
                 let id = frame.id;
                 // Annotate the frame with data
-                let enriched_frame = self.scene_annotation_service.call(frame).await?;
+                // Scene annotation now handled by the new pipeline architecture
+                let enriched_frame = frame; // Pass through for now
 
                 // get prediction
                 // get action

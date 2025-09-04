@@ -14,9 +14,7 @@ use crate::{
             writer::FramedWriter,
         },
     },
-    pipeline::{
-        EnrichedFrame, GameAction, services::image::SceneAnnotationServiceBuilder, types::Scene,
-    },
+    pipeline::{EnrichedFrame, GameAction},
 };
 
 use tokio::sync::{broadcast, mpsc, oneshot};

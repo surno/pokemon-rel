@@ -1,6 +1,5 @@
+pub mod analysis; // New modular scene analysis architecture
 pub mod color_analysis_service;
-pub mod scene_annotation_service;
 
-pub use scene_annotation_service::*;
-
+pub use analysis::{SceneAnalysisConfig, SceneAnalysisOrchestrator};
 pub use color_analysis_service::*;

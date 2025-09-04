@@ -1,7 +1,7 @@
 use super::configuration::{ActionSelectionStrategy, PipelineConfiguration};
 use crate::error::AppError;
 use crate::pipeline::services::{
-    image::scene_annotation_service::SceneAnnotationService,
+    image::analysis::{SceneAnalysisConfig, SceneAnalysisOrchestrator},
     learning::{
         experience_collector::ExperienceCollector,
         reward::{
@@ -47,8 +47,11 @@ impl AIPipelineFactory {
             .validate()
             .map_err(|e| AppError::Client(format!("Invalid configuration: {}", e)))?;
 
-        // Create core services
-        let scene_annotation_service = SceneAnnotationService::new(());
+        // Create core services with new modular architecture
+        let scene_analysis_orchestrator =
+            SceneAnalysisOrchestrator::new(SceneAnalysisConfig::pokemon_optimized())
+                .map_err(|e| AppError::Client(format!("Failed to create scene analysis: {}", e)))?;
+
         let smart_action_service = Arc::new(Mutex::new(SmartActionService::new()));
         let rl_service = RLService::new();
 
@@ -118,7 +121,7 @@ impl AIPipelineFactory {
 
         // Create processing pipeline with all steps
         let pipeline = Self::create_processing_pipeline(
-            scene_annotation_service,
+            scene_analysis_orchestrator,
             smart_action_service,
             rl_service,
             action_selector,
@@ -154,7 +157,7 @@ impl AIPipelineFactory {
 
     /// Create the complete processing pipeline
     fn create_processing_pipeline(
-        scene_annotation_service: SceneAnnotationService,
+        scene_analysis_orchestrator: SceneAnalysisOrchestrator,
         smart_action_service: Arc<Mutex<SmartActionService>>,
         rl_service: RLService,
         action_selector: Box<dyn crate::pipeline::services::orchestration::ActionSelector>,
@@ -171,7 +174,7 @@ impl AIPipelineFactory {
         Ok(ProcessingPipeline::new()
             // Step 1: Scene analysis and situation understanding
             .add_step(Box::new(SceneAnalysisStep::new(
-                scene_annotation_service,
+                scene_analysis_orchestrator,
                 smart_action_service,
             )))
             // Step 2: Policy inference

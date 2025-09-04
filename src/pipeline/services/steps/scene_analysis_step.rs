@@ -1,6 +1,6 @@
 use crate::error::AppError;
 use crate::pipeline::services::{
-    image::scene_annotation_service::SceneAnnotationService,
+    image::analysis::SceneAnalysisOrchestrator,
     learning::smart_action_service::SmartActionService,
     orchestration::{
         ProcessingStep,
@@ -14,17 +14,17 @@ use tower::Service;
 
 /// Processing step that handles scene annotation and situation analysis
 pub struct SceneAnalysisStep {
-    scene_annotation_service: SceneAnnotationService,
+    scene_analysis_orchestrator: SceneAnalysisOrchestrator,
     smart_action_service: Arc<Mutex<SmartActionService>>,
 }
 
 impl SceneAnalysisStep {
     pub fn new(
-        scene_annotation_service: SceneAnnotationService,
+        scene_analysis_orchestrator: SceneAnalysisOrchestrator,
         smart_action_service: Arc<Mutex<SmartActionService>>,
     ) -> Self {
         Self {
-            scene_annotation_service,
+            scene_analysis_orchestrator,
             smart_action_service,
         }
     }
@@ -35,9 +35,9 @@ impl ProcessingStep for SceneAnalysisStep {
     async fn process(&mut self, context: &mut FrameContext) -> Result<(), AppError> {
         let step_start = Instant::now();
 
-        // First, annotate the frame with scene detection
+        // First, annotate the frame with scene detection using new orchestrator
         let annotated_frame = self
-            .scene_annotation_service
+            .scene_analysis_orchestrator
             .call(context.frame.clone())
             .await?;
         context.frame = annotated_frame;

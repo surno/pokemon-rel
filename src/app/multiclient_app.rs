@@ -6,7 +6,8 @@ use crate::network::server::Server;
 use crate::pipeline::{
     EnrichedFrame, GameAction,
     services::{
-        AIPipelineFactory, image::scene_annotation_service::SceneAnnotationService,
+        AIPipelineFactory,
+        image::analysis::{SceneAnalysisConfig, SceneAnalysisOrchestrator},
         orchestration::UIPipelineAdapter,
     },
 };
@@ -36,7 +37,7 @@ pub struct MultiClientApp {
     client_ids: Vec<Uuid>,
     cached_frame: Option<EnrichedFrame>,
     ai_pipeline_adapter: UIPipelineAdapter,
-    scene_annotation_service: SceneAnnotationService,
+    scene_analysis_orchestrator: SceneAnalysisOrchestrator,
     errors: Vec<AppError>,
 }
 
@@ -87,7 +88,10 @@ impl MultiClientApp {
             client_ids: Vec::new(),
             cached_frame: None,
             ai_pipeline_adapter,
-            scene_annotation_service: SceneAnnotationService::new(()),
+            scene_analysis_orchestrator: SceneAnalysisOrchestrator::new(
+                SceneAnalysisConfig::pokemon_optimized(),
+            )
+            .expect("Failed to create scene analysis orchestrator"),
             errors: Vec::new(),
         }
     }
@@ -262,7 +266,7 @@ impl eframe::App for MultiClientApp {
                             Ok(mut frame) => {
                                 // Annotate the frame with scene detection for UI display
                                 let scene = self
-                                    .scene_annotation_service
+                                    .scene_analysis_orchestrator
                                     .detect_scene_sync(&frame.image);
                                 if let Some(state) = &mut frame.state {
                                     state.scene = scene;
