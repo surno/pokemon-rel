@@ -136,6 +136,11 @@ impl MetricsObserver for PerformanceMonitor {
     fn on_frame_processed(&mut self, _client_id: Uuid, metrics: &FrameMetrics) {
         let mut stats = self.stats.lock().unwrap();
         stats.total_frames_processed += 1;
+        tracing::debug!(
+            "PerformanceMonitor: processed frame {}, total_time={}us",
+            stats.total_frames_processed,
+            metrics.total_processing_duration_us
+        );
 
         const ALPHA: f32 = 0.1; // EWMA smoothing factor
         stats.average_frame_time_us = Self::update_ewma(

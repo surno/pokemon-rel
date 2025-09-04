@@ -212,10 +212,19 @@ impl eframe::App for MultiClientApp {
                 ui.horizontal_wrapped(|ui| {
                     ui.strong("AI Status:");
 
-                    // Show current scene if we have a cached frame
+                    // Show current Pokemon Black game state
                     if let Some(frame) = &self.cached_frame {
                         if let Some(state) = &frame.state {
                             ui.label(format!("Scene: {:?}", state.scene));
+                            ui.label(format!("Location: {:?}", state.location_type));
+                            if let Some(location) = &state.current_location {
+                                ui.label(format!("Area: {}", location));
+                            }
+                            if state.in_tall_grass {
+                                ui.label("🌱 In Tall Grass!");
+                            }
+                            ui.label(format!("Pokemon: {}", state.pokemon_count));
+                            ui.label(format!("Badges: {}/8", state.badges_earned));
                         } else {
                             ui.label("Scene: No State");
                         }
@@ -262,6 +271,20 @@ impl eframe::App for MultiClientApp {
                                         scene,
                                         player_position: (0.0, 0.0),
                                         pokemon_count: 0,
+                                        current_location: None,
+                                        location_type:
+                                            crate::pipeline::types::LocationType::Unknown,
+                                        pokemon_party: Vec::new(),
+                                        pokedex_seen: 0,
+                                        pokedex_caught: 0,
+                                        badges_earned: 0,
+                                        story_progress:
+                                            crate::pipeline::types::StoryProgress::GameStart,
+                                        in_tall_grass: false,
+                                        menu_cursor_position: None,
+                                        battle_turn: None,
+                                        last_encounter_steps: 0,
+                                        encounter_chain: 0,
                                     });
                                 }
                                 self.cached_frame = Some(frame);

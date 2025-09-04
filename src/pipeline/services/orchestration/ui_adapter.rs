@@ -84,6 +84,11 @@ impl UIPipelineAdapter {
     /// Get stats in the format expected by the UI
     pub fn get_stats_shared(&self) -> UICompatibleStats {
         let perf_stats = self.performance_stats.lock().unwrap().clone();
+        tracing::debug!(
+            "UI Adapter stats: frames={}, fps={:.1}",
+            perf_stats.total_frames_processed,
+            perf_stats.frames_per_second
+        );
 
         UICompatibleStats {
             total_frames_processed: perf_stats.total_frames_processed,

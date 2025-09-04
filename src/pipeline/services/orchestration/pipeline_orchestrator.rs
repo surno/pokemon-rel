@@ -1,7 +1,7 @@
 use super::{FrameContext, MetricsCollector, ProcessingPipeline, UIPipelineAdapter};
 use crate::error::AppError;
 use crate::pipeline::{EnrichedFrame, GameAction};
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -41,7 +41,9 @@ impl AIPipelineOrchestrator {
         let context = FrameContext::new(frame);
 
         // Process through the pipeline
+        debug!("About to process through pipeline for client {}", client_id);
         let mut processed_context = self.pipeline.process(context).await?;
+        debug!("Pipeline processing completed for client {}", client_id);
 
         // Update UI adapter with decision history if available
         if let Some(smart_decision) = &processed_context.smart_decision {
@@ -50,7 +52,9 @@ impl AIPipelineOrchestrator {
         }
 
         // Finalize metrics
+        debug!("Finalizing metrics for client {}", client_id);
         processed_context.metrics.finalize(frame_start);
+        debug!("Metrics finalized for client {}", client_id);
 
         // Send action if one was selected
         if let Some(action) = processed_context.selected_action {
@@ -65,6 +69,10 @@ impl AIPipelineOrchestrator {
 
         // Notify metrics observers about frame completion and individual step timings
         let mut collector = self.metrics_collector.lock().await;
+        debug!(
+            "Notifying metrics collector about frame completion for client {}",
+            client_id
+        );
         collector.notify_frame_processed(client_id, &processed_context.metrics);
 
         // Notify individual processing step timings for bottleneck detection
