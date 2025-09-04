@@ -355,11 +355,21 @@ impl AIPipelineService {
         let client_id = frame.client;
 
         self.stats.total_frames_processed += 1;
+        info!(
+            "Processing frame {} for client {}",
+            self.stats.total_frames_processed, client_id
+        );
         // Count a processed frame for FPS
         self.fps_frames += 1;
 
         // First, annotate the frame with scene detection
-        let annotated_frame = self.scene_annotation_service.call(frame).await?;
+        let annotated_frame = match self.scene_annotation_service.call(frame).await {
+            Ok(frame) => frame,
+            Err(e) => {
+                error!("Scene annotation failed: {}", e);
+                return Err(e);
+            }
+        };
 
         // Then, analyze the situation (brief lock)
         let analyze_start = Instant::now();

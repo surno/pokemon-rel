@@ -3,7 +3,10 @@ use crate::emulator::EmulatorClient;
 use crate::error::AppError;
 use crate::intake::client::manager::{ClientManager, ClientManagerHandle};
 use crate::network::server::Server;
-use crate::pipeline::{EnrichedFrame, GameAction, services::AIPipelineService};
+use crate::pipeline::{
+    EnrichedFrame, GameAction,
+    services::{AIPipelineService, image::scene_annotation_service::SceneAnnotationService},
+};
 use tokio::sync::mpsc::error::TryRecvError as MpscTryRecvError;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
@@ -30,6 +33,7 @@ pub struct MultiClientApp {
     client_ids: Vec<Uuid>,
     cached_frame: Option<EnrichedFrame>,
     ai_pipeline_service: AIPipelineService,
+    scene_annotation_service: SceneAnnotationService,
     errors: Vec<AppError>,
 }
 
@@ -80,6 +84,7 @@ impl MultiClientApp {
             client_ids: Vec::new(),
             cached_frame: None,
             ai_pipeline_service,
+            scene_annotation_service: SceneAnnotationService::new(()),
             errors: Vec::new(),
         }
     }
@@ -241,7 +246,20 @@ impl eframe::App for MultiClientApp {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     if let Some(selected_client) = &self.selected_client {
                         match self.frame_rx.try_recv() {
-                            Ok(frame) => {
+                            Ok(mut frame) => {
+                                // Annotate the frame with scene detection for UI display
+                                let scene = self
+                                    .scene_annotation_service
+                                    .detect_scene_sync(&frame.image);
+                                if let Some(state) = &mut frame.state {
+                                    state.scene = scene;
+                                } else {
+                                    frame.state = Some(crate::pipeline::State {
+                                        scene,
+                                        player_position: (0.0, 0.0),
+                                        pokemon_count: 0,
+                                    });
+                                }
                                 self.cached_frame = Some(frame);
                             }
                             Err(broadcast::error::TryRecvError::Lagged(n)) => {

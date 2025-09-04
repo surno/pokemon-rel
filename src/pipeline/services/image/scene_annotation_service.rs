@@ -43,28 +43,44 @@ impl SceneAnnotationService {
         Self {}
     }
 
-    fn detect_scene(&self, frame: &DynamicImage) -> Scene {
-        // Pokemon-specific scene detection
-        let rgb = frame.to_rgb8();
-        let (width, height) = rgb.dimensions();
+    pub fn detect_scene_sync(&self, frame: &DynamicImage) -> crate::pipeline::Scene {
+        self.detect_scene(frame)
+    }
 
-        // Check for battle scene indicators
-        if self.detect_battle_scene(&rgb) {
+    fn detect_scene(&self, frame: &DynamicImage) -> Scene {
+        // Simplified Pokemon scene detection with more logging
+        let rgb = frame.to_rgb8();
+        let (_width, _height) = rgb.dimensions();
+
+        // Start with basic detection using the old simple methods
+        let has_text = self.detect_text_simple(&rgb);
+        let has_menu = self.detect_menu_simple(&rgb);
+        let has_dialog = self.detect_dialog_box_bottom(&rgb);
+
+        // Log what we detected for debugging
+        tracing::debug!(
+            "Detection results: has_text={}, has_menu={}, has_dialog={}",
+            has_text,
+            has_menu,
+            has_dialog
+        );
+
+        // Use the original simple logic that was working
+        if has_text && has_menu {
+            tracing::debug!("Detected Battle scene (text + menu)");
             return Scene::Battle;
         }
-
-        // Check for main menu (title screen, menu options)
-        if self.detect_main_menu(&rgb) {
+        if has_menu {
+            tracing::debug!("Detected MainMenu scene (menu only)");
             return Scene::MainMenu;
         }
-
-        // Check for intro/dialog scenes
-        if self.detect_intro_dialog(&rgb) {
+        if has_text || has_dialog {
+            tracing::debug!("Detected Intro scene (text or dialog)");
             return Scene::Intro;
         }
 
-        // If we can't identify the scene, it's likely overworld gameplay
-        // In Pokemon, most gameplay happens in the overworld
+        // Default to overworld for Pokemon gameplay
+        tracing::debug!("Defaulting to Overworld scene");
         Scene::Overworld
     }
 
@@ -98,13 +114,13 @@ impl SceneAnnotationService {
                 let pixel = rgb.get_pixel(x, y);
                 let [r, g, b] = pixel.0;
 
-                // Green HP bar detection
-                if g > 150 && g > r + 30 && g > b + 30 {
+                // Green HP bar detection (safe arithmetic)
+                if g > 150 && g as u16 > r as u16 + 30 && g as u16 > b as u16 + 30 {
                     consecutive_green += 1;
                     consecutive_red = 0;
                 }
-                // Red HP bar detection (low HP)
-                else if r > 150 && r > g + 30 && r > b + 30 {
+                // Red HP bar detection (low HP, safe arithmetic)
+                else if r > 150 && r as u16 > g as u16 + 30 && r as u16 > b as u16 + 30 {
                     consecutive_red += 1;
                     consecutive_green = 0;
                 } else {
@@ -446,6 +462,9 @@ impl Service<EnrichedFrame> for SceneAnnotationService {
 
     fn call(&mut self, mut enriched_frame: EnrichedFrame) -> Self::Future {
         let scene = self.detect_scene(&enriched_frame.image);
+
+        // Debug logging to see what scenes are being detected
+        tracing::info!("Scene detected: {:?}", scene);
 
         if let Some(state) = &mut enriched_frame.state {
             state.scene = scene;
