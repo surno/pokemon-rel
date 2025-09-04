@@ -268,6 +268,27 @@ impl eframe::App for MultiClientApp {
 
                     ui.separator();
 
+                    // Recent Decisions (compact)
+                    ui.heading("Recent Decisions");
+                    if let Some(cid) = self.selected_client {
+                        let list = self.ai_pipeline_service.get_client_decisions(&cid);
+                        let shown = list.iter().rev().take(8);
+                        egui::Grid::new("recent_decisions_grid")
+                            .striped(true)
+                            .show(ui, |ui| {
+                                ui.label("Action");
+                                ui.label("Conf");
+                                ui.label("Reason");
+                                ui.end_row();
+                                for d in shown {
+                                    ui.label(format!("{:?}", d.action));
+                                    ui.label(format!("{:.2}", d.confidence));
+                                    ui.label(egui::RichText::new(&d.reasoning).small());
+                                    ui.end_row();
+                                }
+                            });
+                    }
+
                     if let Some(frame) = &self.cached_frame {
                         ui.heading(format!("Detailed View - Client {}", selected_client));
                         let mut client_view = ClientView::new(*selected_client, frame.clone());

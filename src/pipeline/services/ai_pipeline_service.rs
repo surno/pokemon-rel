@@ -139,14 +139,22 @@ impl AIPipelineService {
 
     fn select_macro_and_action(
         &mut self,
+        client_id: Uuid,
         situation: &GameSituation,
         _default_action: &GameAction,
     ) -> (MacroAction, GameAction) {
         let sig = Self::situation_signature(situation);
         let candidates = Self::candidate_macros();
 
-        // Epsilon-greedy selection
-        let chosen_macro = if random::<f32>() < self.epsilon {
+        // Special handling for Intro: strongly prefer PressStart; fallback after repeated failures
+        let chosen_macro = if situation.scene == crate::pipeline::types::Scene::Intro {
+            let streak = *self.failure_streak.get(&client_id).unwrap_or(&0);
+            if streak < 10 {
+                MacroAction::PressStart
+            } else {
+                MacroAction::AdvanceDialog
+            }
+        } else if random::<f32>() < self.epsilon {
             // explore
             let idx = (random::<u32>() as usize) % candidates.len();
             candidates[idx]
@@ -221,7 +229,7 @@ impl AIPipelineService {
         }
 
         // Select a new macro and initialize its ticks
-        let (mac, act) = self.select_macro_and_action(situation, default_action);
+        let (mac, act) = self.select_macro_and_action(client_id, situation, default_action);
         // Clamp walk duration if failing often
         let base_ticks = self.default_ticks_for_macro(mac);
         let ticks = if matches!(
