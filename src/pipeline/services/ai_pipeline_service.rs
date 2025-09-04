@@ -1,8 +1,18 @@
 use crate::{
     error::AppError,
     pipeline::{
-        EnrichedFrame, GameAction, MacroAction,
-        services::learning::smart_action_service::{GameSituation, SmartActionService},
+        EnrichedFrame, GameAction, MacroAction, RLService,
+        services::learning::{
+            experience_collector::ExperienceCollector,
+            reward::{
+                calculator::navigation_reward::NavigationRewardCalculator,
+                processor::{
+                    multi_objective_reward_processor::MultiObjectiveRewardProcessor,
+                    reward_processor::RewardProcessor,
+                },
+            },
+            smart_action_service::{GameSituation, SmartActionService},
+        },
     },
 };
 use imghash::{ImageHasher, perceptual::PerceptualHasher};
@@ -10,9 +20,10 @@ use rand::random;
 use std::{
     collections::{HashMap, VecDeque},
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::Instant,
 };
 use tokio::sync::mpsc;
+use tower::Service;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -56,6 +67,10 @@ pub struct AIPipelineService {
     fps_decisions: usize,
     // Scene persistence tracking
     intro_scene_since: HashMap<Uuid, Instant>,
+    // Learning components
+    rl_service: RLService,
+    reward_processor: Arc<Mutex<MultiObjectiveRewardProcessor>>,
+    experience_collector: Arc<tokio::sync::Mutex<ExperienceCollector>>,
 }
 
 #[derive(Debug, Clone)]
@@ -272,23 +287,27 @@ impl AIPipelineService {
         act
     }
 
-    fn update_q_values(&mut self, client_id: &Uuid) {
+    fn update_q_values(&mut self, client_id: &Uuid, reward_override: Option<f32>) {
         // Requires at least one previous tuple stored in last_action_and_situation
         if let Some((last_action, last_situation, _)) =
             self.last_action_and_situation.get(client_id)
         {
-            // reward heuristic: use last image-change median and success flag we just computed in process_frame
+            // Use provided reward if available; otherwise fall back to success heuristic
             let sig = Self::situation_signature(last_situation);
             let macro_act = self.map_action_to_macro(last_action, last_situation);
-            // Use last_success flag; otherwise small penalty
-            let success = *self.last_success.get(client_id).unwrap_or(&false);
-            let reward: f32 = if success { 1.0 } else { -0.01 };
+            let reward: f32 = if let Some(r) = reward_override {
+                r
+            } else {
+                let success = *self.last_success.get(client_id).unwrap_or(&false);
+                if success { 1.0 } else { -0.01 }
+            };
             let alpha = 0.2f32;
             let q = self.q_values.entry((sig, macro_act)).or_insert(0.0);
             *q = *q + alpha * (reward - *q);
             // Update failure streak and epsilon decay
             let streak = self.failure_streak.entry(*client_id).or_insert(0);
-            if success {
+            let success_now = reward > 0.0;
+            if success_now {
                 *streak = 0;
                 self.epsilon = (self.epsilon * self.epsilon_decay).max(self.min_epsilon);
             } else {
@@ -309,6 +328,7 @@ impl AIPipelineService {
             decisions_per_sec: 0.0,
             total_actions_sent: 0,
         };
+        let (training_tx, _training_rx) = mpsc::channel(1000);
         Self {
             smart_action_service: Arc::new(Mutex::new(SmartActionService::new())),
             decision_history: Arc::new(Mutex::new(HashMap::new())),
@@ -330,6 +350,14 @@ impl AIPipelineService {
             fps_frames: 0,
             fps_decisions: 0,
             intro_scene_since: HashMap::new(),
+            rl_service: RLService,
+            reward_processor: Arc::new(Mutex::new(MultiObjectiveRewardProcessor::new(Box::new(
+                NavigationRewardCalculator::default(),
+            )))),
+            experience_collector: Arc::new(tokio::sync::Mutex::new(ExperienceCollector::new(
+                10_000,
+                training_tx,
+            ))),
         }
     }
 
@@ -422,11 +450,6 @@ impl AIPipelineService {
             (current_situation, decision)
         };
 
-        self.last_action_and_situation.insert(
-            client_id,
-            (decision.action.clone(), current_situation, frame.clone()),
-        );
-
         let ai_decision = AIDecision {
             action: decision.action.clone(),
             confidence: decision.confidence,
@@ -439,15 +462,8 @@ impl AIPipelineService {
             hist.entry(client_id).or_default().push(ai_decision);
         }
 
-        // Update Q on last transition
-        self.update_q_values(&client_id);
-
         // Choose macro via epsilon-greedy and map to an action
-        let selection_situation = self
-            .last_action_and_situation
-            .get(&client_id)
-            .map(|(_, s, _)| s.clone())
-            .unwrap();
+        let selection_situation = current_situation.clone();
         // Use recent median distance to inform early stopping
         let image_changed_now = self
             .hash_distance_history
@@ -467,6 +483,29 @@ impl AIPipelineService {
             &selection_situation,
             &decision.action,
             image_changed_now,
+        );
+        // Generate RL prediction for current frame
+        let prediction = self.rl_service.call(frame.clone()).await?;
+        // Process reward and collect experience if available (avoid holding std::sync locks across await)
+        let maybe_exp = {
+            let mut rp = self.reward_processor.lock().unwrap();
+            rp.process_frame(&frame, action_to_send.clone(), prediction.clone())
+        };
+        // Update Q-values using reward for the previous transition, before recording current as last
+        let reward_for_prev = maybe_exp.as_ref().map(|e| e.reward);
+        self.update_q_values(&client_id, reward_for_prev);
+        if let Some(exp) = maybe_exp {
+            let mut collector = self.experience_collector.lock().await;
+            collector.collect_experience(exp).await;
+        }
+        // Now record current as the last action and situation for next step
+        self.last_action_and_situation.insert(
+            client_id,
+            (
+                decision.action.clone(),
+                selection_situation.clone(),
+                frame.clone(),
+            ),
         );
         // If intro persists longer than 2s, force a PressStart action override
         if selection_situation.scene == crate::pipeline::types::Scene::Intro {

@@ -111,7 +111,9 @@ impl ExperienceCollector {
 
         if self.should_send_training_batch() {
             let batch = self.buffer.get_training_batch(100);
-            self.training_tx.send(batch).await.unwrap();
+            if let Err(e) = self.training_tx.try_send(batch) {
+                info!("Training batch not sent (channel not ready/closed): {}", e);
+            }
         }
     }
 

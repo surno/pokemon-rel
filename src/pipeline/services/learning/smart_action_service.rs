@@ -273,7 +273,7 @@ impl SmartActionService {
 
     pub fn analyze_situation(&self, frame: &EnrichedFrame) -> GameSituation {
         // Analyze the current game situation based on the frame
-        let scene = frame
+        let mut scene = frame
             .state
             .as_ref()
             .map(|s| s.scene)
@@ -283,6 +283,14 @@ impl SmartActionService {
         let has_text = self.detect_text_simple(&frame.image);
         let has_menu = self.detect_menu_simple(&frame.image);
         let in_dialog = self.detect_dialog_box_bottom(&frame.image);
+
+        // Heuristic: if scene is Unknown but we see dialog or menu-like UI typical of intro/main menu,
+        // reinterpret as Intro to enable intro-skipping strategy.
+        if scene == Scene::Unknown && (has_text || in_dialog) {
+            scene = Scene::Intro;
+        } else if scene == Scene::Unknown && has_menu {
+            scene = Scene::MainMenu;
+        }
         let cursor_row = self.detect_menu_cursor_row(&frame.image);
         let has_buttons = has_menu; // Simple assumption for now
 
