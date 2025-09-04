@@ -1,7 +1,11 @@
 use crate::{
     error::AppError,
-    pipeline::{EnrichedFrame, GameAction, services::learning::SmartActionService},
+    pipeline::{
+        EnrichedFrame, GameAction,
+        services::learning::smart_action_service::{GameSituation, SmartActionService},
+    },
 };
+use imghash::{ImageHasher, perceptual::PerceptualHasher};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -26,6 +30,8 @@ pub struct AIPipelineService {
     decision_history: HashMap<Uuid, Vec<AIDecision>>,
     action_tx: mpsc::Sender<(Uuid, GameAction)>,
     stats: AIStats,
+    last_action_and_situation: HashMap<Uuid, (GameAction, GameSituation, EnrichedFrame)>,
+    image_hasher: Arc<PerceptualHasher>,
 }
 
 #[derive(Debug, Clone)]
@@ -48,6 +54,8 @@ impl AIPipelineService {
                 average_confidence: 0.0,
                 last_decision_time: None,
             },
+            last_action_and_situation: HashMap::new(),
+            image_hasher: Arc::new(PerceptualHasher::default()),
         }
     }
 
@@ -64,60 +72,73 @@ impl AIPipelineService {
 
     pub async fn process_frame(&mut self, frame: EnrichedFrame) -> Result<(), AppError> {
         let start_time = Instant::now();
+        let client_id = frame.client;
 
-        // Update stats
         self.stats.total_frames_processed += 1;
-        self.stats.last_decision_time = Some(start_time);
 
-        info!(
-            "Processing frame for client {}: scene={:?}",
-            frame.client,
-            frame.state.as_ref().map(|s| s.scene)
-        );
-
-        // Get decision from smart action service
-        let decision = {
+        let (current_situation, decision) = {
             let mut smart_service = self.smart_action_service.lock().unwrap();
-            let situation = smart_service.analyze_situation(&frame);
-            smart_service.make_decision(&situation)
+            let current_situation = smart_service.analyze_situation(&frame);
+
+            if let Some((last_action, last_situation, last_frame)) =
+                self.last_action_and_situation.get(&client_id)
+            {
+                let last_hash = self.image_hasher.hash_from_img(&last_frame.image);
+                let current_hash = self.image_hasher.hash_from_img(&frame.image);
+                let image_changed = last_hash
+                    .distance(&current_hash)
+                    .map(|d| d > 5)
+                    .unwrap_or(false); // treat errors as no change
+
+                let was_successful = smart_service
+                    .is_action_successful(last_situation, &current_situation)
+                    && image_changed;
+                smart_service.record_experience(
+                    last_situation.clone(),
+                    last_action.clone(),
+                    was_successful,
+                );
+                info!(
+                    "Client {}: Action {:?} was successful: {} (image changed: {})",
+                    client_id, last_action, was_successful, image_changed
+                );
+            }
+
+            let decision = smart_service.make_decision(&current_situation);
+            (current_situation, decision)
         };
 
-        // Create AI decision record
+        self.last_action_and_situation.insert(
+            client_id,
+            (decision.action.clone(), current_situation, frame.clone()),
+        );
+
         let ai_decision = AIDecision {
             action: decision.action.clone(),
             confidence: decision.confidence,
             reasoning: decision.reasoning.clone(),
             timestamp: start_time,
-            client_id: frame.client,
+            client_id,
         };
 
-        // Store decision in history
         self.decision_history
-            .entry(frame.client)
-            .or_insert_with(Vec::new)
-            .push(ai_decision.clone());
+            .entry(client_id)
+            .or_default()
+            .push(ai_decision);
 
-        // Keep history manageable (last 100 decisions per client)
-        if let Some(history) = self.decision_history.get_mut(&frame.client) {
-            if history.len() > 100 {
-                history.remove(0);
-            }
-        }
-
-        // Update stats
-        self.stats.total_decisions_made += 1;
-        self.update_average_confidence(decision.confidence);
-
-        // Send action to the appropriate client
         let action_to_send = decision.action.clone();
-        if let Err(e) = self.action_tx.send((frame.client, action_to_send)).await {
-            warn!("Failed to send action to client {}: {}", frame.client, e);
+        if let Err(e) = self.action_tx.send((client_id, action_to_send)).await {
+            warn!("Failed to send action to client {}: {}", client_id, e);
         }
 
         info!(
-            "AI Decision: {:?} (confidence: {:.2}) - {}",
-            decision.action, decision.confidence, decision.reasoning
+            "AI Decision for client {}: {:?} (confidence: {:.2}) - {}",
+            client_id, decision.action, decision.confidence, decision.reasoning
         );
+
+        self.stats.total_decisions_made += 1;
+        self.update_average_confidence(decision.confidence);
+        self.stats.last_decision_time = Some(start_time);
 
         Ok(())
     }

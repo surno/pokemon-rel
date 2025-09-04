@@ -2,6 +2,7 @@ use crate::{
     error::AppError,
     pipeline::{EnrichedFrame, GameAction, Scene},
 };
+use rand::Rng;
 use std::{
     collections::{HashMap, VecDeque},
     future::Future,
@@ -161,7 +162,7 @@ impl SmartActionService {
     }
 
     // Helper method to determine if an action was successful
-    fn is_action_successful(
+    pub fn is_action_successful(
         &self,
         prev_situation: &GameSituation,
         current_situation: &GameSituation,
@@ -442,6 +443,17 @@ impl SmartActionService {
     }
 
     pub fn make_decision(&mut self, situation: &GameSituation) -> ActionDecision {
+        const EPSILON: f32 = 0.1; // 10% chance of exploration
+        if rand::random::<f32>() < EPSILON {
+            let random_action = rand::random::<GameAction>();
+            return ActionDecision {
+                action: random_action,
+                confidence: 0.1,
+                reasoning: "Exploring a random action".to_string(),
+                expected_outcome: "Unknown".to_string(),
+            };
+        }
+
         // First, try to apply learned rules from experience
         if let Some(learned_action) = self.get_learned_action(situation) {
             return learned_action;
