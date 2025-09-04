@@ -4,12 +4,10 @@ use crate::{
     pipeline::GameAction,
 };
 use tokio::sync::mpsc;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
-pub enum ClientCommand {
-    SendAction(GameAction),
-}
+use super::supervisor::ClientCommand;
 
 pub struct Client {
     id: Uuid,
@@ -58,8 +56,11 @@ impl Client {
                 action = self.action_channel.recv() => {
                     match action {
                         Some(action) => match action {
-                            ClientCommand::SendAction(_action) => {
-                                info!("Client {:?} received action", self.id);
+                            ClientCommand::SendAction(action) => {
+                                info!("Client {:?} sending action {:?}", self.id, action);
+                                if let Err(e) = self.writer.send_action(action).await {
+                                    error!("Client {:?} failed to send action: {:?}", self.id, e);
+                                }
                             }
                         },
                         None => {

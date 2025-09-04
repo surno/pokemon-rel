@@ -5,12 +5,18 @@ use crate::{
     error::AppError,
     intake::{
         client::{
-            Client, ClientSupervisor,
-            supervisor::{ClientEntry, ClientSupervisorCommand},
+            Client,
+            supervisor::{ClientEntry, ClientSupervisor, ClientSupervisorCommand},
         },
-        frame::{reader::FrameReader, visitor::FrameDelegatingVisitor, writer::FramedWriter},
+        frame::{
+            reader::FrameReader,
+            visitor::{FrameDelegatingVisitor, FrameVisitor},
+            writer::FramedWriter,
+        },
     },
-    pipeline::{EnrichedFrame, services::image::SceneAnnotationServiceBuilder, types::Scene},
+    pipeline::{
+        EnrichedFrame, GameAction, services::image::SceneAnnotationServiceBuilder, types::Scene,
+    },
 };
 
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -89,6 +95,19 @@ impl ClientManagerHandle {
             .expect("command channel closed");
 
         response_rx.await.expect("supervisor task died");
+    }
+
+    pub async fn send_action_to_client(&self, client_id: Uuid, action: GameAction) {
+        if let Err(e) = self
+            .command_tx
+            .send(ClientSupervisorCommand::SendAction {
+                id: client_id,
+                action,
+            })
+            .await
+        {
+            error!("Failed to send action command to supervisor: {}", e);
+        }
     }
 }
 

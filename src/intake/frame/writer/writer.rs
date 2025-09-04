@@ -3,13 +3,13 @@ use std::pin::Pin;
 
 use tokio::io::{AsyncWrite, AsyncWriteExt, BufWriter};
 
-use crate::{error::FrameError, pipeline::GameAction};
+use crate::{error::AppError, pipeline::GameAction};
 
 pub trait FramedWriter: Send + Sync {
-    fn write(
+    fn send_action(
         &mut self,
         action: GameAction,
-    ) -> Pin<Box<dyn Future<Output = Result<(), FrameError>> + Send + '_>>;
+    ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + '_>>;
 }
 
 pub struct FramedAsyncBufferedWriter<T>
@@ -28,15 +28,15 @@ impl<T: AsyncWrite + Unpin + Sync + Send> FramedAsyncBufferedWriter<T> {
 }
 
 impl<T: AsyncWrite + Unpin + Sync + Send> FramedWriter for FramedAsyncBufferedWriter<T> {
-    fn write(
+    fn send_action(
         &mut self,
         action: GameAction,
-    ) -> Pin<Box<dyn Future<Output = Result<(), FrameError>> + Send + '_>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + '_>> {
         Box::pin(async move {
             self.writer
                 .write_all(&[action as u8])
                 .await
-                .map_err(|e| FrameError::Send(e.to_string()))?;
+                .map_err(AppError::Io)?;
             Ok(())
         })
     }

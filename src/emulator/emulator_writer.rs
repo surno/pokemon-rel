@@ -1,11 +1,6 @@
-use std::future::Future;
-use std::pin::Pin;
-
+use crate::{error::AppError, intake::frame::writer::FramedWriter, pipeline::GameAction};
+use std::{future::Future, pin::Pin};
 use tokio::sync::mpsc;
-
-use crate::error::FrameError;
-use crate::intake::frame::writer::FramedWriter;
-use crate::pipeline::GameAction;
 
 pub struct EmulatorWriter {
     frame_tx: mpsc::Sender<GameAction>,
@@ -18,16 +13,15 @@ impl EmulatorWriter {
 }
 
 impl FramedWriter for EmulatorWriter {
-    fn write(
-        &mut self,
+    fn send_action<'a>(
+        &'a mut self,
         action: GameAction,
-    ) -> Pin<Box<dyn Future<Output = Result<(), FrameError>> + Send + '_>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'a>> {
         Box::pin(async move {
             self.frame_tx
                 .send(action)
                 .await
-                .map_err(|e| FrameError::Send(e.to_string()))?;
-            Ok(())
+                .map_err(|e| AppError::Client(e.to_string()))
         })
     }
 }

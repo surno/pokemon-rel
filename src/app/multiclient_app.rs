@@ -93,7 +93,7 @@ impl MultiClientApp {
         };
 
         let (frame_tx, frame_rx) = broadcast::channel::<EnrichedFrame>(10000);
-        let (action_tx, _action_rx) = mpsc::channel::<(Uuid, GameAction)>(1000);
+        let (action_tx, mut _action_rx) = mpsc::channel::<(Uuid, GameAction)>(1000);
 
         let (client_manager, client_manager_handle) = ClientManager::new(frame_tx.clone());
 
@@ -108,6 +108,16 @@ impl MultiClientApp {
 
         // Create AI pipeline service
         let ai_pipeline_service = AIPipelineService::new(action_tx);
+
+        // Spawn a task to route actions from the AI to the correct client
+        let client_manager_handle_clone = client_manager_handle.clone();
+        tokio::spawn(async move {
+            while let Some((client_id, action)) = _action_rx.recv().await {
+                client_manager_handle_clone
+                    .send_action_to_client(client_id, action)
+                    .await;
+            }
+        });
 
         // Spawn a task for the AI pipeline to process frames
         let mut ai_frame_rx = frame_tx.subscribe();
