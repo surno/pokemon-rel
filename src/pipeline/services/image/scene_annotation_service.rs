@@ -44,24 +44,268 @@ impl SceneAnnotationService {
     }
 
     fn detect_scene(&self, frame: &DynamicImage) -> Scene {
-        // Heuristic detection: analyze image features
-        // Convert once
+        // Pokemon-specific scene detection
         let rgb = frame.to_rgb8();
-        let has_text = self.detect_text_simple(&rgb);
-        let has_menu = self.detect_menu_simple(&rgb);
-        let has_dialog = self.detect_dialog_box_bottom(&rgb);
+        let (width, height) = rgb.dimensions();
 
-        if has_text && has_menu {
-            // Typical battle UI presents both menu and text
+        // Check for battle scene indicators
+        if self.detect_battle_scene(&rgb) {
             return Scene::Battle;
         }
-        if has_menu {
+
+        // Check for main menu (title screen, menu options)
+        if self.detect_main_menu(&rgb) {
             return Scene::MainMenu;
         }
-        if has_text || has_dialog {
+
+        // Check for intro/dialog scenes
+        if self.detect_intro_dialog(&rgb) {
             return Scene::Intro;
         }
-        Scene::Unknown
+
+        // If we can't identify the scene, it's likely overworld gameplay
+        // In Pokemon, most gameplay happens in the overworld
+        Scene::Overworld
+    }
+
+    fn detect_battle_scene(&self, rgb: &RgbImage) -> bool {
+        let (width, height) = rgb.dimensions();
+
+        // Battle scenes typically have:
+        // 1. HP bars in specific locations (top portion)
+        // 2. Battle menu at bottom
+        // 3. Specific color patterns
+
+        // Check for HP bar indicators in top 25% of screen
+        let hp_bar_found = self.detect_hp_bars(rgb, width, height);
+
+        // Check for battle menu in bottom 25% of screen
+        let battle_menu_found = self.detect_battle_menu(rgb, width, height);
+
+        // Pokemon battle scenes often have these UI elements
+        hp_bar_found || battle_menu_found
+    }
+
+    fn detect_hp_bars(&self, rgb: &RgbImage, width: u32, height: u32) -> bool {
+        let top_quarter = height / 4;
+
+        // Look for green/red horizontal bars (HP indicators)
+        for y in 0..top_quarter {
+            let mut consecutive_green = 0;
+            let mut consecutive_red = 0;
+
+            for x in 0..width {
+                let pixel = rgb.get_pixel(x, y);
+                let [r, g, b] = pixel.0;
+
+                // Green HP bar detection
+                if g > 150 && g > r + 30 && g > b + 30 {
+                    consecutive_green += 1;
+                    consecutive_red = 0;
+                }
+                // Red HP bar detection (low HP)
+                else if r > 150 && r > g + 30 && r > b + 30 {
+                    consecutive_red += 1;
+                    consecutive_green = 0;
+                } else {
+                    consecutive_green = 0;
+                    consecutive_red = 0;
+                }
+
+                // If we found a long horizontal green or red line, likely HP bar
+                if consecutive_green > width / 8 || consecutive_red > width / 8 {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    fn detect_battle_menu(&self, rgb: &RgbImage, width: u32, height: u32) -> bool {
+        let bottom_quarter_start = (height * 3) / 4;
+
+        // Look for menu box patterns in bottom quarter
+        let mut menu_boxes = 0;
+
+        for y in (bottom_quarter_start..height).step_by(8) {
+            for x in (0..width).step_by(16) {
+                if self.detect_menu_box(rgb, x, y, 32, 16) {
+                    menu_boxes += 1;
+                }
+            }
+        }
+
+        menu_boxes >= 2 // At least 2 menu boxes suggests battle interface
+    }
+
+    fn detect_main_menu(&self, rgb: &RgbImage) -> bool {
+        let (width, height) = rgb.dimensions();
+
+        // Main menu typically has:
+        // 1. Title text/logo in upper portion
+        // 2. Menu options in center/lower portion
+        // 3. Specific background patterns
+
+        // Check for large text blocks (title/logo)
+        let has_title = self.detect_large_text_block(rgb, width, height / 3);
+
+        // Check for menu options (smaller text blocks arranged vertically)
+        let has_menu_options = self.detect_menu_options(rgb, width, height);
+
+        has_title || has_menu_options
+    }
+
+    fn detect_large_text_block(&self, rgb: &RgbImage, width: u32, height_limit: u32) -> bool {
+        let mut large_contrast_regions = 0;
+
+        for y in (0..height_limit).step_by(4) {
+            for x in (0..width).step_by(4) {
+                if self.has_high_contrast_region(rgb, x, y, 24, 24) {
+                    large_contrast_regions += 1;
+                }
+            }
+        }
+
+        // Title screens typically have many high-contrast regions
+        large_contrast_regions > (width * height_limit) / 1000
+    }
+
+    fn detect_menu_options(&self, rgb: &RgbImage, width: u32, height: u32) -> bool {
+        let middle_start = height / 3;
+        let middle_end = (height * 2) / 3;
+
+        let mut menu_lines = 0;
+
+        for y in (middle_start..middle_end).step_by(8) {
+            let mut line_contrast = 0;
+            for x in (0..width).step_by(8) {
+                if self.pixel_has_text_contrast(rgb, x, y) {
+                    line_contrast += 1;
+                }
+            }
+
+            // If this line has enough contrast, it might be a menu option
+            if line_contrast > width / 32 {
+                menu_lines += 1;
+            }
+        }
+
+        menu_lines >= 3 // At least 3 menu lines suggests menu screen
+    }
+
+    fn detect_intro_dialog(&self, rgb: &RgbImage) -> bool {
+        let (width, height) = rgb.dimensions();
+
+        // Dialog scenes typically have:
+        // 1. Text box at bottom of screen
+        // 2. Character portraits or dialog indicators
+        // 3. Specific UI patterns
+
+        self.detect_dialog_box_bottom(rgb) || self.detect_text_heavy_scene(rgb)
+    }
+
+    fn detect_text_heavy_scene(&self, rgb: &RgbImage) -> bool {
+        let (width, height) = rgb.dimensions();
+        let mut text_regions = 0;
+
+        // Sample the image for text-like patterns
+        for y in (0..height).step_by(12) {
+            for x in (0..width).step_by(12) {
+                if self.pixel_has_text_contrast(rgb, x, y) {
+                    text_regions += 1;
+                }
+            }
+        }
+
+        // If more than 15% of sampled regions look like text
+        let total_samples = (width / 12) * (height / 12);
+        text_regions > total_samples / 7
+    }
+
+    fn detect_menu_box(&self, rgb: &RgbImage, x: u32, y: u32, w: u32, h: u32) -> bool {
+        let (img_w, img_h) = rgb.dimensions();
+        if x + w >= img_w || y + h >= img_h {
+            return false;
+        }
+
+        // Check if this region looks like a menu box (bordered rectangle)
+        let mut border_pixels = 0;
+        let mut total_border = 0;
+
+        // Check top and bottom borders
+        for dx in 0..w {
+            total_border += 2;
+            if self.pixel_looks_like_border(rgb, x + dx, y) {
+                border_pixels += 1;
+            }
+            if y + h - 1 < img_h && self.pixel_looks_like_border(rgb, x + dx, y + h - 1) {
+                border_pixels += 1;
+            }
+        }
+
+        // Check left and right borders
+        for dy in 1..h - 1 {
+            total_border += 2;
+            if self.pixel_looks_like_border(rgb, x, y + dy) {
+                border_pixels += 1;
+            }
+            if x + w - 1 < img_w && self.pixel_looks_like_border(rgb, x + w - 1, y + dy) {
+                border_pixels += 1;
+            }
+        }
+
+        // If most border pixels look like borders, this is likely a menu box
+        total_border > 0 && (border_pixels as f32 / total_border as f32) > 0.6
+    }
+
+    fn has_high_contrast_region(&self, rgb: &RgbImage, x: u32, y: u32, w: u32, h: u32) -> bool {
+        let (img_w, img_h) = rgb.dimensions();
+        if x + w >= img_w || y + h >= img_h {
+            return false;
+        }
+
+        let mut contrast_pixels = 0;
+        let mut total_pixels = 0;
+
+        for dy in 0..h {
+            for dx in 0..w {
+                if x + dx + 1 < img_w && y + dy + 1 < img_h {
+                    total_pixels += 1;
+                    if self.pixel_has_text_contrast(rgb, x + dx, y + dy) {
+                        contrast_pixels += 1;
+                    }
+                }
+            }
+        }
+
+        total_pixels > 0 && (contrast_pixels as f32 / total_pixels as f32) > 0.3
+    }
+
+    fn pixel_has_text_contrast(&self, rgb: &RgbImage, x: u32, y: u32) -> bool {
+        let (width, height) = rgb.dimensions();
+        if x == 0 || y == 0 || x >= width - 1 || y >= height - 1 {
+            return false;
+        }
+
+        let current = rgb.get_pixel(x, y);
+        let right = rgb.get_pixel(x + 1, y);
+        let down = rgb.get_pixel(x, y + 1);
+
+        let curr_brightness = (current[0] as f32 + current[1] as f32 + current[2] as f32) / 3.0;
+        let right_brightness = (right[0] as f32 + right[1] as f32 + right[2] as f32) / 3.0;
+        let down_brightness = (down[0] as f32 + down[1] as f32 + down[2] as f32) / 3.0;
+
+        (curr_brightness - right_brightness).abs() > 40.0
+            || (curr_brightness - down_brightness).abs() > 40.0
+    }
+
+    fn pixel_looks_like_border(&self, rgb: &RgbImage, x: u32, y: u32) -> bool {
+        let pixel = rgb.get_pixel(x, y);
+        let [r, g, b] = pixel.0;
+
+        // Border pixels are typically dark or very light
+        let brightness = (r as f32 + g as f32 + b as f32) / 3.0;
+        brightness < 50.0 || brightness > 200.0
     }
 
     fn detect_text_simple(&self, rgb_image: &RgbImage) -> bool {

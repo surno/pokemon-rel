@@ -202,6 +202,18 @@ impl eframe::App for MultiClientApp {
                 let dbg = self.ai_pipeline_service.get_debug_snapshot();
                 ui.horizontal_wrapped(|ui| {
                     ui.strong("AI Status:");
+
+                    // Show current scene if we have a cached frame
+                    if let Some(frame) = &self.cached_frame {
+                        if let Some(state) = &frame.state {
+                            ui.label(format!("Scene: {:?}", state.scene));
+                        } else {
+                            ui.label("Scene: No State");
+                        }
+                    } else {
+                        ui.label("Scene: No Frame");
+                    }
+
                     if let Some((mac, ticks)) = dbg.active_macro {
                         ui.label(format!("macro {:?} ({} ticks)", mac, ticks));
                     } else {

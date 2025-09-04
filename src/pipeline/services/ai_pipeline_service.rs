@@ -2,16 +2,19 @@ use crate::{
     error::AppError,
     pipeline::{
         EnrichedFrame, GameAction, MacroAction, RLPrediction, RLService,
-        services::learning::{
-            experience_collector::ExperienceCollector,
-            reward::{
-                calculator::navigation_reward::NavigationRewardCalculator,
-                processor::{
-                    multi_objective_reward_processor::MultiObjectiveRewardProcessor,
-                    reward_processor::RewardProcessor,
+        services::{
+            image::scene_annotation_service::SceneAnnotationService,
+            learning::{
+                experience_collector::ExperienceCollector,
+                reward::{
+                    calculator::navigation_reward::NavigationRewardCalculator,
+                    processor::{
+                        multi_objective_reward_processor::MultiObjectiveRewardProcessor,
+                        reward_processor::RewardProcessor,
+                    },
                 },
+                smart_action_service::{GameSituation, SmartActionService},
             },
-            smart_action_service::{GameSituation, SmartActionService},
         },
     },
 };
@@ -67,6 +70,8 @@ pub struct AIPipelineService {
     rl_service: RLService,
     reward_processor: Arc<Mutex<MultiObjectiveRewardProcessor>>,
     experience_collector: Arc<tokio::sync::Mutex<ExperienceCollector>>,
+    // Scene annotation for proper scene detection
+    scene_annotation_service: SceneAnnotationService,
     // When true, prefer policy actions (PPO) over tabular Q-learning selection
     use_policy: bool,
 }
@@ -328,6 +333,7 @@ impl AIPipelineService {
                 10_000,
                 training_tx,
             ))),
+            scene_annotation_service: SceneAnnotationService::new(()),
             use_policy: true,
         };
         this
@@ -352,11 +358,14 @@ impl AIPipelineService {
         // Count a processed frame for FPS
         self.fps_frames += 1;
 
-        // First, analyze the situation (brief lock)
+        // First, annotate the frame with scene detection
+        let annotated_frame = self.scene_annotation_service.call(frame).await?;
+
+        // Then, analyze the situation (brief lock)
         let analyze_start = Instant::now();
         let current_situation = {
             let smart_service = self.smart_action_service.lock().unwrap();
-            smart_service.analyze_situation(&frame)
+            smart_service.analyze_situation(&annotated_frame)
         };
         let analyze_duration = analyze_start.elapsed().as_micros() as u64;
         Self::update_timing_stat(
@@ -372,9 +381,10 @@ impl AIPipelineService {
             self.last_action_and_situation.get(&client_id)
         {
             // Downscale current frame once (smaller for speed) and compare to last_small
-            let small_curr = frame
-                .image
-                .resize(64, 64, image::imageops::FilterType::Nearest);
+            let small_curr =
+                annotated_frame
+                    .image
+                    .resize(64, 64, image::imageops::FilterType::Nearest);
             let last_hash = self.image_hasher.hash_from_img(last_small);
             let current_hash = self.image_hasher.hash_from_img(&small_curr);
             let distance = last_hash.distance(&current_hash).unwrap_or(0);
@@ -459,7 +469,7 @@ impl AIPipelineService {
 
         // PPO: get policy prediction for current frame and sample an action
         let policy_start = Instant::now();
-        let prediction = self.rl_service.call(frame.clone()).await?;
+        let prediction = self.rl_service.call(annotated_frame.clone()).await?;
         let policy_action = Self::sample_action_from_prediction(&prediction);
         let policy_duration = policy_start.elapsed().as_micros() as u64;
         Self::update_timing_stat(
@@ -503,7 +513,7 @@ impl AIPipelineService {
         let reward_start = Instant::now();
         let maybe_exp = {
             let mut rp = self.reward_processor.lock().unwrap();
-            rp.process_frame(&frame, action_to_send.clone(), prediction.clone())
+            rp.process_frame(&annotated_frame, action_to_send.clone(), prediction.clone())
         };
         let reward_duration = reward_start.elapsed().as_micros() as u64;
         Self::update_timing_stat(
@@ -534,9 +544,10 @@ impl AIPipelineService {
             }
         }
         // Now record current as the last action and situation for next step (cache downscaled image)
-        let small_curr_for_cache = frame
-            .image
-            .resize(64, 64, image::imageops::FilterType::Nearest);
+        let small_curr_for_cache =
+            annotated_frame
+                .image
+                .resize(64, 64, image::imageops::FilterType::Nearest);
         self.last_action_and_situation.insert(
             client_id,
             (

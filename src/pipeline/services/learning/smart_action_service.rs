@@ -324,6 +324,7 @@ impl SmartActionService {
                 Scene::Battle => (true, true, false, None),
                 Scene::MainMenu => (false, true, false, Some(0)),
                 Scene::Intro => (true, false, true, None),
+                Scene::Overworld => (false, false, false, None),
                 Scene::Unknown => (false, false, false, None),
             }
         } else {
@@ -354,6 +355,7 @@ impl SmartActionService {
             Scene::Battle => vec!["red".to_string(), "blue".to_string()],
             Scene::MainMenu => vec!["blue".to_string(), "white".to_string()],
             Scene::Intro => vec!["black".to_string(), "white".to_string()],
+            Scene::Overworld => vec!["green".to_string(), "brown".to_string()],
             Scene::Unknown => vec!["gray".to_string()],
         };
         let urgency_level = self.determine_urgency(scene, has_text, has_menu);
@@ -614,8 +616,9 @@ impl SmartActionService {
                     UrgencyLevel::Low // Just waiting
                 }
             }
-            Scene::Intro => UrgencyLevel::Low,   // Can take time
-            Scene::Battle => UrgencyLevel::High, // Act quickly in battle
+            Scene::Intro => UrgencyLevel::Low,     // Can take time
+            Scene::Battle => UrgencyLevel::High,   // Act quickly in battle
+            Scene::Overworld => UrgencyLevel::Low, // Exploration, no rush
             Scene::Unknown => {
                 if has_text {
                     UrgencyLevel::Medium // Might need to respond
