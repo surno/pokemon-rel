@@ -25,6 +25,12 @@ pub struct AIDecision {
     pub client_id: Uuid,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ActiveMacroState {
+    action: MacroAction,
+    ticks_left: u32,
+}
+
 #[derive(Clone)]
 pub struct AIPipelineService {
     smart_action_service: Arc<Mutex<SmartActionService>>,
@@ -38,6 +44,7 @@ pub struct AIPipelineService {
     q_values: HashMap<(u64, MacroAction), f32>,
     epsilon: f32,
     last_success: HashMap<Uuid, bool>,
+    active_macros: HashMap<Uuid, ActiveMacroState>,
 }
 
 #[derive(Debug, Clone)]
@@ -146,6 +153,59 @@ impl AIPipelineService {
         (chosen_macro, final_action)
     }
 
+    fn default_ticks_for_macro(&self, mac: MacroAction) -> u32 {
+        match mac {
+            MacroAction::AdvanceDialog => 1,
+            MacroAction::MenuSelect => 1,
+            MacroAction::MenuBack => 1,
+            MacroAction::WalkUp
+            | MacroAction::WalkDown
+            | MacroAction::WalkLeft
+            | MacroAction::WalkRight => 6,
+        }
+    }
+
+    fn drive_macro_action(
+        &mut self,
+        client_id: Uuid,
+        situation: &GameSituation,
+        default_action: &GameAction,
+    ) -> GameAction {
+        // Try to continue an existing macro; capture action first to avoid borrow conflicts
+        let maybe_continued_macro = {
+            if let Some(state) = self.active_macros.get_mut(&client_id) {
+                if state.ticks_left > 0 {
+                    state.ticks_left -= 1;
+                    Some(state.action)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
+        if let Some(mac) = maybe_continued_macro {
+            // If macro finished (ticks became 0), remove it now
+            if let Some(state) = self.active_macros.get(&client_id) {
+                if state.ticks_left == 0 {
+                    let _ = self.active_macros.remove(&client_id);
+                }
+            }
+            return self.macro_to_action(mac);
+        }
+
+        let (mac, act) = self.select_macro_and_action(situation, default_action);
+        let ticks = self.default_ticks_for_macro(mac);
+        self.active_macros.insert(
+            client_id,
+            ActiveMacroState {
+                action: mac,
+                ticks_left: ticks.saturating_sub(1),
+            },
+        );
+        act
+    }
+
     fn update_q_values(&mut self, client_id: &Uuid) {
         // Requires at least one previous tuple stored in last_action_and_situation
         if let Some((last_action, last_situation, _)) =
@@ -182,6 +242,7 @@ impl AIPipelineService {
             q_values: HashMap::new(),
             epsilon: 0.2,
             last_success: HashMap::new(),
+            active_macros: HashMap::new(),
         }
     }
 
@@ -275,8 +336,8 @@ impl AIPipelineService {
             .get(&client_id)
             .map(|(_, s, _)| s.clone())
             .unwrap();
-        let (_chosen_macro, action_to_send) =
-            self.select_macro_and_action(&selection_situation, &decision.action);
+        let action_to_send =
+            self.drive_macro_action(client_id, &selection_situation, &decision.action);
         if let Err(e) = self.action_tx.send((client_id, action_to_send)).await {
             warn!("Failed to send action to client {}: {}", client_id, e);
         }
