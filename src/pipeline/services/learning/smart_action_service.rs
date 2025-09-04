@@ -262,12 +262,21 @@ impl SmartActionService {
         self.scene_rules.insert(Scene::Intro, intro_rules);
 
         // Create separate rules for Unknown scene
-        let unknown_rules = vec![ActionRule {
-            condition: Box::new(|situation| situation.scene == Scene::Unknown),
-            action: GameAction::A,
-            priority: 1,
-            description: "Press A to advance through unknown".to_string(),
-        }];
+        // Prefer movement to reduce NPC spam; pressing A is a fallback
+        let unknown_rules = vec![
+            ActionRule {
+                condition: Box::new(|situation| situation.scene == Scene::Unknown),
+                action: GameAction::Up,
+                priority: 0,
+                description: "Move to explore when unknown".to_string(),
+            },
+            ActionRule {
+                condition: Box::new(|situation| situation.scene == Scene::Unknown),
+                action: GameAction::A,
+                priority: 2,
+                description: "Press A to advance when stuck".to_string(),
+            },
+        ];
         self.scene_rules.insert(Scene::Unknown, unknown_rules);
 
         // Basic rules for Battle scene

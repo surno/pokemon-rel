@@ -1,4 +1,6 @@
 use crate::pipeline::types::{EnrichedFrame, GameAction, Scene};
+use image::imageops::FilterType;
+use imghash::{ImageHasher, perceptual::PerceptualHasher};
 
 use super::reward_calculator::RewardCalculator;
 
@@ -31,19 +33,80 @@ impl RewardCalculator for NavigationRewardCalculator {
             f.state.as_ref().map_or(Scene::Unknown, |s| s.scene)
         });
 
-        // Simple heuristic:
-        // - Reward positively when transitioning from Intro to any other scene
-        // - Reward small positive when moving between distinct non-Unknown scenes
-        // - Small penalty otherwise to encourage progress
+        // Overworld incentives/penalties:
+        // - Strongly penalize standing still in overworld (no perceptual change)
+        // - Slight reward for movement that changes the image
+        // - Slight penalty for spamming A/Start/B in overworld with no change
+        // Existing intro/menu transitions remain rewarded to encourage progress
+
+        // Handle Intro transitions as before
         if current_scene == Scene::Intro
             && next_scene != Scene::Intro
             && next_scene != Scene::Unknown
         {
-            1.0
-        } else if next_scene != Scene::Unknown && next_scene != current_scene {
-            0.5
+            return 1.0;
+        }
+        if next_scene != Scene::Unknown && next_scene != current_scene {
+            return 0.5;
+        }
+
+        // If we lack a next frame, provide a tiny penalty to push progress
+        let Some(nf) = next_frame else {
+            return -0.01;
+        };
+
+        // Compute a perceptual hash distance to detect "standing still"
+        let small_curr = current_frame.image.resize(128, 128, FilterType::Nearest);
+        let small_next = nf.image.resize(128, 128, FilterType::Nearest);
+        let hasher = PerceptualHasher::default();
+        let h_curr = hasher.hash_from_img(&small_curr);
+        let h_next = hasher.hash_from_img(&small_next);
+        let distance = h_curr.distance(&h_next).unwrap_or(0);
+        let changed = distance > 5; // threshold tuned alongside pipeline
+
+        // Overworld is our catch-all when not Battle/MainMenu/Intro
+        let in_overworld = current_scene != Scene::Battle
+            && current_scene != Scene::MainMenu
+            && current_scene != Scene::Intro;
+
+        if in_overworld {
+            match _action {
+                // Movement: reward only if it changes the image; otherwise light penalty
+                GameAction::Up | GameAction::Down | GameAction::Left | GameAction::Right => {
+                    if changed {
+                        0.05
+                    } else {
+                        -0.1
+                    }
+                }
+                // Interaction without visible effect: penalize to avoid talking when nothing changes
+                GameAction::A => {
+                    if changed {
+                        0.02
+                    } else {
+                        -0.15
+                    }
+                }
+                // Menu toggles in overworld: discourage
+                GameAction::Start | GameAction::B => {
+                    if changed {
+                        -0.02
+                    } else {
+                        -0.1
+                    }
+                }
+                // D-pad diagonals or others (if any) default to small penalty if no change
+                _ => {
+                    if changed {
+                        0.0
+                    } else {
+                        -0.05
+                    }
+                }
+            }
         } else {
-            -0.01
+            // Default gentle nudge towards progress when not in overworld
+            if changed { 0.0 } else { -0.01 }
         }
     }
 }
