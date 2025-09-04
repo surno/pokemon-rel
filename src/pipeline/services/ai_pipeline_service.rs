@@ -6,6 +6,7 @@ use crate::{
     },
 };
 use imghash::{ImageHasher, perceptual::PerceptualHasher};
+use rand::random;
 use std::{
     collections::{HashMap, VecDeque},
     sync::{Arc, Mutex},
@@ -35,6 +36,8 @@ pub struct AIPipelineService {
     hash_distance_history: HashMap<Uuid, VecDeque<usize>>, // rolling window per client
     // Simple tabular learner keyed by situation signature + macro action
     q_values: HashMap<(u64, MacroAction), f32>,
+    epsilon: f32,
+    last_success: HashMap<Uuid, bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -46,6 +49,17 @@ pub struct AIStats {
 }
 
 impl AIPipelineService {
+    fn candidate_macros() -> [MacroAction; 7] {
+        [
+            MacroAction::AdvanceDialog,
+            MacroAction::WalkUp,
+            MacroAction::WalkDown,
+            MacroAction::WalkLeft,
+            MacroAction::WalkRight,
+            MacroAction::MenuSelect,
+            MacroAction::MenuBack,
+        ]
+    }
     fn situation_signature(situation: &GameSituation) -> u64 {
         // Very simple signature: pack booleans and scene into bits
         let mut sig: u64 = 0;
@@ -87,6 +101,51 @@ impl AIPipelineService {
         }
     }
 
+    fn macro_to_action(&self, mac: MacroAction) -> GameAction {
+        match mac {
+            MacroAction::AdvanceDialog => GameAction::A,
+            MacroAction::WalkUp => GameAction::Up,
+            MacroAction::WalkDown => GameAction::Down,
+            MacroAction::WalkLeft => GameAction::Left,
+            MacroAction::WalkRight => GameAction::Right,
+            MacroAction::MenuSelect => GameAction::A,
+            MacroAction::MenuBack => GameAction::B,
+        }
+    }
+
+    fn select_macro_and_action(
+        &mut self,
+        situation: &GameSituation,
+        _default_action: &GameAction,
+    ) -> (MacroAction, GameAction) {
+        let sig = Self::situation_signature(situation);
+        let candidates = Self::candidate_macros();
+
+        // Epsilon-greedy selection
+        let chosen_macro = if random::<f32>() < self.epsilon {
+            // explore
+            let idx = (random::<u32>() as usize) % candidates.len();
+            candidates[idx]
+        } else {
+            // exploit
+            let mut best = candidates[0];
+            let mut best_q = f32::MIN;
+            for m in candidates.iter().copied() {
+                let q = *self.q_values.get(&(sig, m)).unwrap_or(&0.0);
+                if q > best_q {
+                    best_q = q;
+                    best = m;
+                }
+            }
+            best
+        };
+
+        // Map macro to an immediate action
+        let action = self.macro_to_action(chosen_macro);
+        let final_action = action;
+        (chosen_macro, final_action)
+    }
+
     fn update_q_values(&mut self, client_id: &Uuid) {
         // Requires at least one previous tuple stored in last_action_and_situation
         if let Some((last_action, last_situation, _)) =
@@ -95,9 +154,12 @@ impl AIPipelineService {
             // reward heuristic: use last image-change median and success flag we just computed in process_frame
             let sig = Self::situation_signature(last_situation);
             let macro_act = self.map_action_to_macro(last_action, last_situation);
-            // Use decision history success if available; otherwise small penalty
-            let recent = self.decision_history.get(client_id).and_then(|v| v.last());
-            let reward: f32 = 0.0 + recent.map(|_| 0.0).unwrap_or(-0.01);
+            // Use last_success flag; otherwise small penalty
+            let reward: f32 = if *self.last_success.get(client_id).unwrap_or(&false) {
+                1.0
+            } else {
+                -0.01
+            };
             let alpha = 0.2f32;
             let q = self.q_values.entry((sig, macro_act)).or_insert(0.0);
             *q = *q + alpha * (reward - *q);
@@ -118,6 +180,8 @@ impl AIPipelineService {
             image_hasher: Arc::new(PerceptualHasher::default()),
             hash_distance_history: HashMap::new(),
             q_values: HashMap::new(),
+            epsilon: 0.2,
+            last_success: HashMap::new(),
         }
     }
 
@@ -168,6 +232,7 @@ impl AIPipelineService {
                 let was_successful = smart_service
                     .is_action_successful(last_situation, &current_situation)
                     && image_changed;
+                self.last_success.insert(client_id, was_successful);
                 smart_service.record_experience(
                     last_situation.clone(),
                     last_action.clone(),
@@ -201,16 +266,17 @@ impl AIPipelineService {
             .or_default()
             .push(ai_decision);
 
-        // Select a macro for learning (map one-step actions for now)
-        let macro_action = self.map_action_to_macro(
-            &decision.action,
-            &self.last_action_and_situation[&client_id].1,
-        );
-
         // Update Q on last transition
         self.update_q_values(&client_id);
 
-        let action_to_send = decision.action.clone();
+        // Choose macro via epsilon-greedy and map to an action
+        let selection_situation = self
+            .last_action_and_situation
+            .get(&client_id)
+            .map(|(_, s, _)| s.clone())
+            .unwrap();
+        let (_chosen_macro, action_to_send) =
+            self.select_macro_and_action(&selection_situation, &decision.action);
         if let Err(e) = self.action_tx.send((client_id, action_to_send)).await {
             warn!("Failed to send action to client {}: {}", client_id, e);
         }
