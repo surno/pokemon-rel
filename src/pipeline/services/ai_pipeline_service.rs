@@ -694,8 +694,6 @@ impl AIPipelineService {
     }
 }
 
-// Q-learning persistence hooks removed
-
 // Service implementation for processing frames
 impl AIPipelineService {
     pub async fn start_frame_processing(

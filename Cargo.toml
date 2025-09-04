@@ -31,3 +31,4 @@ desmume-rs = { git = "https://github.com/surno/desmume-rs.git" }
 chrono = "0.4.41"
 rand = "0.9.1"
 config = "0.15.15"
+async-trait = "0.1.89"
