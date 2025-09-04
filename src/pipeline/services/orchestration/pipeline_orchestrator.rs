@@ -1,9 +1,6 @@
 use super::{FrameContext, MetricsCollector, ProcessingPipeline, UIPipelineAdapter};
 use crate::error::AppError;
-use crate::pipeline::services::learning::smart_action_service::ActionDecision;
 use crate::pipeline::{EnrichedFrame, GameAction};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
@@ -66,9 +63,47 @@ impl AIPipelineOrchestrator {
             collector.notify_action_sent(client_id, action);
         }
 
-        // Notify metrics observers about frame completion
+        // Notify metrics observers about frame completion and individual step timings
         let mut collector = self.metrics_collector.lock().await;
         collector.notify_frame_processed(client_id, &processed_context.metrics);
+
+        // Notify individual processing step timings for bottleneck detection
+        use crate::pipeline::services::orchestration::frame_context::ProcessingStepType;
+        collector.notify_processing_step(
+            client_id,
+            ProcessingStepType::SceneAnalysis,
+            processed_context.metrics.scene_analysis_duration_us,
+        );
+        collector.notify_processing_step(
+            client_id,
+            ProcessingStepType::PolicyInference,
+            processed_context.metrics.policy_inference_duration_us,
+        );
+        collector.notify_processing_step(
+            client_id,
+            ProcessingStepType::ActionSelection,
+            processed_context.metrics.action_selection_duration_us,
+        );
+        collector.notify_processing_step(
+            client_id,
+            ProcessingStepType::MacroExecution,
+            processed_context.metrics.macro_execution_duration_us,
+        );
+        collector.notify_processing_step(
+            client_id,
+            ProcessingStepType::RewardProcessing,
+            processed_context.metrics.reward_processing_duration_us,
+        );
+        collector.notify_processing_step(
+            client_id,
+            ProcessingStepType::ExperienceCollection,
+            processed_context.metrics.experience_collection_duration_us,
+        );
+        collector.notify_processing_step(
+            client_id,
+            ProcessingStepType::ImageChangeDetection,
+            processed_context.metrics.image_change_detection_us,
+        );
 
         info!(
             "Frame processed for client {} in {}us",
