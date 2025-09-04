@@ -36,6 +36,15 @@ impl Client {
 
     pub async fn start(&mut self) -> Result<(), AppError> {
         info!("Running client pipeline for {:?}", self.id);
+
+        if let Err(e) = self.visitor.handshake(self.id, 0) {
+            tracing::warn!(
+                "Client {:?} failed to handshake visitor (id sync): {:?}",
+                self.id,
+                e
+            );
+        }
+
         loop {
             tokio::select! {
                 next_message = self.reader.read() => {

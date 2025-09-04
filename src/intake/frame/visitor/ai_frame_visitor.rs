@@ -3,11 +3,13 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::error::AppError;
+use crate::intake::frame::writer::FramedWriter;
 use crate::pipeline::{EnrichedFrame, GameAction};
 
 pub struct AIFrameVisitor {
     frame_tx: mpsc::Sender<EnrichedFrame>,
     action_rx: mpsc::Receiver<GameAction>,
+    writer: Box<dyn FramedWriter + Send + Sync>,
     state: ClientState,
     client_id: Uuid,
     program: u16,
@@ -24,10 +26,12 @@ impl AIFrameVisitor {
     pub fn new(
         frame_tx: mpsc::Sender<EnrichedFrame>,
         action_rx: mpsc::Receiver<GameAction>,
+        writer: Box<dyn FramedWriter + Send + Sync>,
     ) -> Self {
         Self {
             frame_tx,
             action_rx,
+            writer,
             state: ClientState::Handshake,
             client_id: Uuid::new_v4(),
             program: 0,
@@ -44,8 +48,8 @@ impl AIFrameVisitor {
                 action
             );
 
-            // TODO: Send action to emulator via the writer
-            // self.writer.write_action(action).await?;
+            // Send action to emulator via the writer
+            self.writer.send_action(action).await?;
         }
         Ok(())
     }

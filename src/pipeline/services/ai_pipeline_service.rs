@@ -34,7 +34,7 @@ struct ActiveMacroState {
 #[derive(Clone)]
 pub struct AIPipelineService {
     smart_action_service: Arc<Mutex<SmartActionService>>,
-    decision_history: HashMap<Uuid, Vec<AIDecision>>,
+    decision_history: Arc<Mutex<HashMap<Uuid, Vec<AIDecision>>>>,
     action_tx: mpsc::Sender<(Uuid, GameAction)>,
     stats: AIStats,
     last_action_and_situation: HashMap<Uuid, (GameAction, GameSituation, EnrichedFrame)>,
@@ -54,6 +54,8 @@ pub struct AIPipelineService {
     fps_window_start: Instant,
     fps_frames: usize,
     fps_decisions: usize,
+    // Scene persistence tracking
+    intro_scene_since: HashMap<Uuid, Instant>,
 }
 
 #[derive(Debug, Clone)]
@@ -64,6 +66,7 @@ pub struct AIStats {
     pub last_decision_time: Option<Instant>,
     pub frames_per_sec: f32,
     pub decisions_per_sec: f32,
+    pub total_actions_sent: usize,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -189,7 +192,7 @@ impl AIPipelineService {
             MacroAction::AdvanceDialog => 1,
             MacroAction::MenuSelect => 1,
             MacroAction::MenuBack => 1,
-            MacroAction::PressStart => 1,
+            MacroAction::PressStart => 4,
             MacroAction::WalkUp
             | MacroAction::WalkDown
             | MacroAction::WalkLeft
@@ -304,10 +307,11 @@ impl AIPipelineService {
             last_decision_time: None,
             frames_per_sec: 0.0,
             decisions_per_sec: 0.0,
+            total_actions_sent: 0,
         };
         Self {
             smart_action_service: Arc::new(Mutex::new(SmartActionService::new())),
-            decision_history: HashMap::new(),
+            decision_history: Arc::new(Mutex::new(HashMap::new())),
             action_tx,
             stats: stats.clone(),
             last_action_and_situation: HashMap::new(),
@@ -325,6 +329,7 @@ impl AIPipelineService {
             fps_window_start: Instant::now(),
             fps_frames: 0,
             fps_decisions: 0,
+            intro_scene_since: HashMap::new(),
         }
     }
 
@@ -404,6 +409,15 @@ impl AIPipelineService {
                 );
             }
 
+            // Track Intro scene persistence window
+            if current_situation.scene == crate::pipeline::types::Scene::Intro {
+                self.intro_scene_since
+                    .entry(client_id)
+                    .or_insert(start_time);
+            } else {
+                self.intro_scene_since.remove(&client_id);
+            }
+
             let decision = smart_service.make_decision(&current_situation);
             (current_situation, decision)
         };
@@ -417,14 +431,13 @@ impl AIPipelineService {
             action: decision.action.clone(),
             confidence: decision.confidence,
             reasoning: decision.reasoning.clone(),
-            timestamp: start_time,
+            timestamp: Instant::now(),
             client_id,
         };
 
-        self.decision_history
-            .entry(client_id)
-            .or_default()
-            .push(ai_decision);
+        if let Ok(mut hist) = self.decision_history.lock() {
+            hist.entry(client_id).or_default().push(ai_decision);
+        }
 
         // Update Q on last transition
         self.update_q_values(&client_id);
@@ -455,9 +468,25 @@ impl AIPipelineService {
             &decision.action,
             image_changed_now,
         );
+        // If intro persists longer than 2s, force a PressStart action override
+        if selection_situation.scene == crate::pipeline::types::Scene::Intro {
+            if let Some(since) = self.intro_scene_since.get(&client_id) {
+                if Instant::now().duration_since(*since).as_secs_f32() > 2.0 {
+                    let forced = self.macro_to_action(MacroAction::PressStart);
+                    info!(
+                        "Intro persists >2s, forcing PressStart for client {}",
+                        client_id
+                    );
+                    if let Err(e) = self.action_tx.try_send((client_id, forced)) {
+                        warn!("Failed to send forced Start to client {}: {}", client_id, e);
+                    }
+                }
+            }
+        }
         if let Err(e) = self.action_tx.try_send((client_id, action_to_send)) {
             warn!("Failed to send action to client {}: {}", client_id, e);
         }
+        self.stats.total_actions_sent += 1;
 
         info!(
             "AI Decision for client {}: {:?} (confidence: {:.2}) - {}",
@@ -539,8 +568,8 @@ impl AIPipelineService {
 
     pub fn get_client_decisions(&self, client_id: &Uuid) -> Vec<AIDecision> {
         self.decision_history
-            .get(client_id)
-            .cloned()
+            .lock()
+            .map(|m| m.get(client_id).cloned().unwrap_or_default())
             .unwrap_or_default()
     }
 
@@ -558,8 +587,8 @@ impl AIPipelineService {
         was_successful: bool,
     ) -> Result<(), AppError> {
         // Get the last decision for this client to record the result
-        if let Some(decisions) = self.decision_history.get(&client_id) {
-            if let Some(last_decision) = decisions.last() {
+        if let Ok(hist) = self.decision_history.lock() {
+            if let Some(last_decision) = hist.get(&client_id).and_then(|v| v.last()) {
                 let mut smart_service = self.smart_action_service.lock().unwrap();
 
                 // Create a mock situation for recording (in real implementation, you'd pass the actual situation)

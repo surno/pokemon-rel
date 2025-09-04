@@ -260,6 +260,7 @@ impl eframe::App for MultiClientApp {
                     ));
                     ui.label(format!("Proc FPS: {:.1}", stats.frames_per_sec));
                     ui.label(format!("Decision FPS: {:.1}", stats.decisions_per_sec));
+                    ui.label(format!("Actions Sent: {}", stats.total_actions_sent));
 
                     if let Some(last_time) = stats.last_decision_time {
                         ui.label(format!(
