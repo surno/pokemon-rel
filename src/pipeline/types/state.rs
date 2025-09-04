@@ -5,6 +5,7 @@ pub enum Scene {
     Unknown = 0,
     Intro = 1,
     MainMenu = 2,
+    Battle = 3,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

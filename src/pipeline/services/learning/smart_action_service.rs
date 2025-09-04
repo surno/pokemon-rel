@@ -269,6 +269,23 @@ impl SmartActionService {
             description: "Press A to advance through unknown".to_string(),
         }];
         self.scene_rules.insert(Scene::Unknown, unknown_rules);
+
+        // Basic rules for Battle scene
+        let battle_rules = vec![
+            ActionRule {
+                condition: Box::new(|s| s.scene == Scene::Battle && s.has_text),
+                action: GameAction::A, // advance battle prompts
+                priority: 0,
+                description: "Advance battle dialog".to_string(),
+            },
+            ActionRule {
+                condition: Box::new(|s| s.scene == Scene::Battle && s.has_menu),
+                action: GameAction::A, // select default option
+                priority: 1,
+                description: "Select battle option".to_string(),
+            },
+        ];
+        self.scene_rules.insert(Scene::Battle, battle_rules);
     }
 
     pub fn analyze_situation(&self, frame: &EnrichedFrame) -> GameSituation {
@@ -284,9 +301,13 @@ impl SmartActionService {
         let has_menu = self.detect_menu_simple(&frame.image);
         let in_dialog = self.detect_dialog_box_bottom(&frame.image);
 
-        // Heuristic: if scene is Unknown but we see dialog or menu-like UI typical of intro/main menu,
-        // reinterpret as Intro to enable intro-skipping strategy.
-        if scene == Scene::Unknown && (has_text || in_dialog) {
+        // Heuristic order:
+        // - If we detect both text and a menu, it's likely a battle UI
+        // - Otherwise map Unknown with text/dialog to Intro
+        // - Or Unknown with menu to MainMenu
+        if scene == Scene::Unknown && has_text && has_menu {
+            scene = Scene::Battle;
+        } else if scene == Scene::Unknown && (has_text || in_dialog) {
             scene = Scene::Intro;
         } else if scene == Scene::Unknown && has_menu {
             scene = Scene::MainMenu;
@@ -557,7 +578,8 @@ impl SmartActionService {
                     UrgencyLevel::Low // Just waiting
                 }
             }
-            Scene::Intro => UrgencyLevel::Low, // Can take time
+            Scene::Intro => UrgencyLevel::Low,   // Can take time
+            Scene::Battle => UrgencyLevel::High, // Act quickly in battle
             Scene::Unknown => {
                 if has_text {
                     UrgencyLevel::Medium // Might need to respond

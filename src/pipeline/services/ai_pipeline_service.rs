@@ -113,6 +113,7 @@ impl AIPipelineService {
             crate::pipeline::types::Scene::Unknown => 0u64,
             crate::pipeline::types::Scene::Intro => 1u64,
             crate::pipeline::types::Scene::MainMenu => 2u64,
+            crate::pipeline::types::Scene::Battle => 3u64,
         };
         sig |= scene_val & 0xF;
         if situation.has_text {

@@ -5,6 +5,7 @@ use uuid::Uuid;
 use crate::pipeline::services::learning::experience_collector::Experience;
 use crate::pipeline::services::learning::reward::RewardProcessor;
 use crate::pipeline::services::learning::reward::calculator::reward_calculator::RewardCalculator;
+use crate::pipeline::services::learning::reward::calculator::BattleRewardCalculator;
 use crate::pipeline::services::learning::reward::multi_objective_reward::MultiObjectiveReward;
 use crate::pipeline::types::{EnrichedFrame, GameAction, RLPrediction};
 
@@ -14,6 +15,7 @@ pub struct MultiObjectiveRewardProcessor {
     prediction_buffer: VecDeque<RLPrediction>,
 
     navigation_reward_calculator: Box<dyn RewardCalculator>,
+    battle_reward_calculator: Box<dyn RewardCalculator>,
 }
 
 impl MultiObjectiveRewardProcessor {
@@ -23,6 +25,7 @@ impl MultiObjectiveRewardProcessor {
             action_buffer: VecDeque::with_capacity(3),
             prediction_buffer: VecDeque::with_capacity(3),
             navigation_reward_calculator,
+            battle_reward_calculator: Box::new(BattleRewardCalculator::default()),
         }
     }
 
@@ -65,13 +68,17 @@ impl RewardProcessor for MultiObjectiveRewardProcessor {
         let processed_action = &self.action_buffer[1];
         let processed_prediction = &self.prediction_buffer[1];
 
-        let detailed_reward = MultiObjectiveReward {
-            navigation_reward: self.navigation_reward_calculator.calculate_reward(
-                current_frame,
-                processed_action.clone(),
-                Some(next_frame),
-            ),
-        };
+        let nav_reward = self.navigation_reward_calculator.calculate_reward(
+            current_frame,
+            processed_action.clone(),
+            Some(next_frame),
+        );
+        let battle_reward = self.battle_reward_calculator.calculate_reward(
+            current_frame,
+            processed_action.clone(),
+            Some(next_frame),
+        );
+        let detailed_reward = MultiObjectiveReward { navigation_reward: nav_reward, battle_reward };
 
         let normalized_reward = detailed_reward.normalize();
 
