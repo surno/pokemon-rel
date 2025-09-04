@@ -117,7 +117,7 @@ impl UIPipelineAdapter {
                 max_reward_processing_us: perf_stats.max_reward_processing_us,
                 max_experience_collection_us: perf_stats.max_experience_collection_us,
                 max_action_send_us: perf_stats.max_action_send_us,
-                max_total_frame_us: 0, // This isn't tracked, using average
+                max_total_frame_us: perf_stats.average_frame_time_us as u64,
 
                 // last_ timings are not available in the new architecture, using averages as fallback
                 last_analyze_situation_us: perf_stats.avg_scene_analysis_us as u64,

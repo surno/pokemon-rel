@@ -12,9 +12,7 @@ use crate::error::AppError;
 use tracing::Level;
 
 fn init_logging() {
-    tracing_subscriber::fmt()
-        .with_max_level(Level::DEBUG)
-        .init();
+    tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 }
 
 #[tokio::main]

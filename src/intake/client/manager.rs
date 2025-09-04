@@ -1,7 +1,6 @@
 use std::fs;
 
 use crate::{
-    app::controller::app_controller::AppController,
     error::AppError,
     intake::{
         client::{

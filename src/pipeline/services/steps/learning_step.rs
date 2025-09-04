@@ -14,6 +14,7 @@ use crate::pipeline::services::{
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use tracing::info;
 
 /// Processing step that handles reward processing, experience collection, and policy updates
 pub struct LearningStep {
@@ -83,6 +84,7 @@ impl ProcessingStep for LearningStep {
                 prediction,
             )
         };
+        info!("Reward processed in {:?}", reward_start.elapsed());
         let reward_duration = reward_start.elapsed().as_micros() as u64;
         context
             .metrics
