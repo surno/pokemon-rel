@@ -11,11 +11,11 @@ use crate::pipeline::services::{
                 reward_processor::RewardProcessor,
             },
         },
-        smart_action_service::SmartActionService,
+        smart_action_service::{ActionDecision, SmartActionService},
     },
     managers::{ClientStateManager, ImageChangeDetector, MacroManager},
     orchestration::{
-        AIPipelineOrchestrator, MetricsCollector, ProcessingPipeline,
+        AIPipelineOrchestrator, MetricsCollector, ProcessingPipeline, UIPipelineAdapter,
         action_selector::{
             HybridActionSelector, PolicyBasedActionSelector, RuleBasedActionSelector,
         },
@@ -27,6 +27,7 @@ use crate::pipeline::services::{
     },
 };
 use crate::pipeline::{GameAction, RLService};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -73,16 +74,47 @@ impl AIPipelineFactory {
         // Create action selector based on strategy
         let action_selector = Self::create_action_selector(&config.action_selection_strategy)?;
 
+        // Create metrics observers and get their shared references for UI adapter
+        let performance_monitor = PerformanceMonitor::new();
+        let performance_stats = if config.performance_monitoring_enabled {
+            Some(performance_monitor.get_stats_shared())
+        } else {
+            None
+        };
+
+        let debug_tracker = DebugTracker::new();
+        let debug_info = if config.debug_tracking_enabled {
+            Some(debug_tracker.get_debug_info_shared())
+        } else {
+            None
+        };
+
         // Create metrics collector with observers
         let mut metrics_collector = MetricsCollector::new();
 
         if config.performance_monitoring_enabled {
-            metrics_collector = metrics_collector.add_observer(Box::new(PerformanceMonitor::new()));
+            metrics_collector = metrics_collector.add_observer(Box::new(performance_monitor));
         }
 
         if config.debug_tracking_enabled {
-            metrics_collector = metrics_collector.add_observer(Box::new(DebugTracker::new()));
+            metrics_collector = metrics_collector.add_observer(Box::new(debug_tracker));
         }
+
+        // Create UI adapter with shared references to actual metrics
+        let decision_history = Arc::new(Mutex::new(HashMap::<Uuid, Vec<ActionDecision>>::new()));
+        let ui_adapter = UIPipelineAdapter::new(
+            performance_stats.unwrap_or_else(|| {
+                Arc::new(Mutex::new(
+                    crate::pipeline::services::orchestration::metrics::PerformanceStats::default(),
+                ))
+            }),
+            Arc::clone(&decision_history),
+            debug_info.unwrap_or_else(|| {
+                Arc::new(Mutex::new(
+                    crate::pipeline::services::orchestration::metrics::DebugInfo::default(),
+                ))
+            }),
+        );
 
         // Create processing pipeline with all steps
         let pipeline = Self::create_processing_pipeline(
@@ -103,6 +135,7 @@ impl AIPipelineFactory {
             pipeline,
             action_tx,
             metrics_collector,
+            ui_adapter,
         ))
     }
 

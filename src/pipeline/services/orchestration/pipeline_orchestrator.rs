@@ -23,22 +23,8 @@ impl AIPipelineOrchestrator {
         pipeline: ProcessingPipeline,
         action_tx: mpsc::Sender<(Uuid, GameAction)>,
         metrics_collector: MetricsCollector,
+        ui_adapter: UIPipelineAdapter,
     ) -> Self {
-        // Create shared state for UI adapter
-        let performance_stats = Arc::new(Mutex::new(
-            crate::pipeline::services::orchestration::metrics::PerformanceStats::default(),
-        ));
-        let decision_history = Arc::new(Mutex::new(HashMap::<Uuid, Vec<ActionDecision>>::new()));
-        let debug_info = Arc::new(Mutex::new(
-            crate::pipeline::services::orchestration::metrics::DebugInfo::default(),
-        ));
-
-        let ui_adapter = UIPipelineAdapter::new(
-            Arc::clone(&performance_stats),
-            Arc::clone(&decision_history),
-            Arc::clone(&debug_info),
-        );
-
         Self {
             pipeline,
             action_transmitter: ActionTransmitter::new(action_tx),
@@ -59,6 +45,12 @@ impl AIPipelineOrchestrator {
 
         // Process through the pipeline
         let mut processed_context = self.pipeline.process(context).await?;
+
+        // Update UI adapter with decision history if available
+        if let Some(smart_decision) = &processed_context.smart_decision {
+            self.ui_adapter
+                .add_client_decision(client_id, smart_decision.clone());
+        }
 
         // Finalize metrics
         processed_context.metrics.finalize(frame_start);
