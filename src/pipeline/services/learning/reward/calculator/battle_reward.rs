@@ -12,7 +12,7 @@ impl Default for BattleRewardCalculator {
 
 impl RewardCalculator for BattleRewardCalculator {
     fn calculate_reward(
-        &self,
+        &mut self,
         current_frame: &EnrichedFrame,
         _action: GameAction,
         next_frame: Option<&EnrichedFrame>,
@@ -31,12 +31,10 @@ impl RewardCalculator for BattleRewardCalculator {
         // - Reward exiting Battle to a non-Battle scene (battle concluded)
         // - Small negative otherwise
         match (current_scene, next_scene) {
-            (Scene::Battle, Scene::Battle) => 0.1,      // sustaining battle
+            (Scene::Battle, Scene::Battle) => 0.1, // sustaining battle
             (s, Scene::Battle) if s != Scene::Battle => 0.5, // entered battle
             (Scene::Battle, s) if s != Scene::Battle => 1.0, // battle concluded
             _ => -0.01,
         }
     }
 }
-
-

@@ -4,8 +4,10 @@ use uuid::Uuid;
 
 use crate::pipeline::services::learning::experience_collector::Experience;
 use crate::pipeline::services::learning::reward::RewardProcessor;
-use crate::pipeline::services::learning::reward::calculator::BattleRewardCalculator;
 use crate::pipeline::services::learning::reward::calculator::reward_calculator::RewardCalculator;
+use crate::pipeline::services::learning::reward::calculator::{
+    BattleRewardCalculator, StoryProgressRewardCalculator,
+};
 use crate::pipeline::services::learning::reward::multi_objective_reward::MultiObjectiveReward;
 use crate::pipeline::types::{EnrichedFrame, GameAction, RLPrediction};
 
@@ -16,6 +18,7 @@ pub struct MultiObjectiveRewardProcessor {
 
     navigation_reward_calculator: Box<dyn RewardCalculator>,
     battle_reward_calculator: Box<dyn RewardCalculator>,
+    story_progress_calculator: Box<dyn RewardCalculator>,
 }
 
 impl MultiObjectiveRewardProcessor {
@@ -26,6 +29,7 @@ impl MultiObjectiveRewardProcessor {
             prediction_buffer: VecDeque::with_capacity(3),
             navigation_reward_calculator,
             battle_reward_calculator: Box::new(BattleRewardCalculator::default()),
+            story_progress_calculator: Box::new(StoryProgressRewardCalculator::new()),
         }
     }
 
@@ -78,6 +82,11 @@ impl RewardProcessor for MultiObjectiveRewardProcessor {
             processed_action.clone(),
             Some(next_frame),
         );
+        let story_reward = self.story_progress_calculator.calculate_reward(
+            current_frame,
+            processed_action.clone(),
+            Some(next_frame),
+        );
         // Simplified stall/oscillation penalties - avoid expensive image hashing
         // Use basic scene/state changes instead of perceptual hashing
         let prev_scene = previous_frame.state.as_ref().map(|s| s.scene);
@@ -98,6 +107,7 @@ impl RewardProcessor for MultiObjectiveRewardProcessor {
         let detailed_reward = MultiObjectiveReward {
             navigation_reward: navigation_reward_total,
             battle_reward,
+            story_progress_reward: story_reward,
         };
 
         let normalized_reward = detailed_reward.normalize();

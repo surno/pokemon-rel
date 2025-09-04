@@ -18,7 +18,7 @@ impl Default for NavigationRewardCalculator {
 
 impl RewardCalculator for NavigationRewardCalculator {
     fn calculate_reward(
-        &self,
+        &mut self,
         current_frame: &EnrichedFrame,
         _action: GameAction,
         next_frame: Option<&EnrichedFrame>,

@@ -789,6 +789,18 @@ mod tests {
             scene,
             player_position: (0.0, 0.0),
             pokemon_count: 0,
+            current_location: Some("Test Location".to_string()),
+            location_type: crate::pipeline::types::LocationType::Unknown,
+            pokemon_party: vec![],
+            pokedex_seen: 0,
+            pokedex_caught: 0,
+            badges_earned: 0,
+            story_progress: crate::pipeline::types::StoryProgress::GameStart,
+            in_tall_grass: false,
+            menu_cursor_position: None,
+            battle_turn: None,
+            last_encounter_steps: 0,
+            encounter_chain: 0,
         });
         f
     }
