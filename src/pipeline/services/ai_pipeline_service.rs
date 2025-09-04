@@ -1,7 +1,7 @@
 use crate::{
     error::AppError,
     pipeline::{
-        EnrichedFrame, GameAction, MacroAction, RLService,
+        EnrichedFrame, GameAction, MacroAction, RLPrediction, RLService,
         services::learning::{
             experience_collector::ExperienceCollector,
             reward::{
@@ -17,8 +17,7 @@ use crate::{
 };
 use image::DynamicImage;
 use imghash::{ImageHasher, perceptual::PerceptualHasher};
-use rand::random;
-use serde::{Deserialize, Serialize};
+use rand::{distr::Distribution, distr::weighted::WeightedIndex, random};
 use std::{
     collections::{HashMap, VecDeque},
     sync::{Arc, Mutex},
@@ -54,14 +53,8 @@ pub struct AIPipelineService {
     last_action_and_situation: HashMap<Uuid, (GameAction, GameSituation, DynamicImage)>,
     image_hasher: Arc<PerceptualHasher>,
     hash_distance_history: HashMap<Uuid, VecDeque<usize>>, // rolling window per client
-    // Simple tabular learner keyed by situation signature + macro action
-    q_values: HashMap<(u64, MacroAction), f32>,
-    epsilon: f32,
-    last_success: HashMap<Uuid, bool>,
+    // Q-learning removed; policy-based selection only
     active_macros: HashMap<Uuid, ActiveMacroState>,
-    min_epsilon: f32,
-    epsilon_decay: f32,
-    failure_streak: HashMap<Uuid, u32>,
     stats_shared: Arc<Mutex<AIStats>>,
     debug_snapshot: Arc<Mutex<AIDebugSnapshot>>,
     // FPS tracking
@@ -74,6 +67,8 @@ pub struct AIPipelineService {
     rl_service: RLService,
     reward_processor: Arc<Mutex<MultiObjectiveRewardProcessor>>,
     experience_collector: Arc<tokio::sync::Mutex<ExperienceCollector>>,
+    // When true, prefer policy actions (PPO) over tabular Q-learning selection
+    use_policy: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -89,136 +84,12 @@ pub struct AIStats {
 
 #[derive(Debug, Clone, Default)]
 pub struct AIDebugSnapshot {
-    pub epsilon: f32,
     pub last_client: Option<Uuid>,
     pub active_macro: Option<(MacroAction, u32)>,
-    pub failure_streak: u32,
     pub median_distance: Option<usize>,
 }
 
-// ---------- Persistence types ----------
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct QValueEntry {
-    signature: u64,
-    action: MacroAction,
-    value: f32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct PersistedState {
-    q_values: Vec<QValueEntry>,
-    epsilon: f32,
-    action_history: VecDeque<(
-        crate::pipeline::services::learning::smart_action_service::GameSituation,
-        GameAction,
-        bool,
-    )>,
-}
-
 impl AIPipelineService {
-    // ---------- Persistence ----------
-    const STATE_PATH: &'static str = "ai_state.json";
-
-    fn build_persisted_state(&self) -> PersistedState {
-        // Convert q_values map into entries list
-        let q_values: Vec<QValueEntry> = self
-            .q_values
-            .iter()
-            .map(|(&(signature, action), &value)| QValueEntry {
-                signature,
-                action,
-                value,
-            })
-            .collect();
-        // Export action history from SmartActionService
-        let action_history = {
-            if let Ok(svc) = self.smart_action_service.lock() {
-                svc.export_action_history()
-            } else {
-                VecDeque::new()
-            }
-        };
-        PersistedState {
-            q_values,
-            epsilon: self.epsilon,
-            action_history,
-        }
-    }
-
-    fn apply_persisted_state(&mut self, state: PersistedState) {
-        // Rebuild q_values map
-        self.q_values.clear();
-        for entry in state.q_values.into_iter() {
-            self.q_values
-                .insert((entry.signature, entry.action), entry.value);
-        }
-        self.epsilon = state.epsilon;
-        // Import action history into SmartActionService
-        if let Ok(mut svc) = self.smart_action_service.lock() {
-            svc.import_action_history(state.action_history);
-        }
-    }
-
-    fn try_load_from_disk(&mut self) {
-        match std::fs::read(Self::STATE_PATH) {
-            Ok(bytes) => match serde_json::from_slice::<PersistedState>(&bytes) {
-                Ok(state) => {
-                    self.apply_persisted_state(state);
-                    info!("Loaded AI state from {}", Self::STATE_PATH);
-                }
-                Err(e) => {
-                    warn!(
-                        "Failed to deserialize AI state ({}): {}",
-                        Self::STATE_PATH,
-                        e
-                    );
-                }
-            },
-            Err(e) => {
-                // File might not exist on first run; keep it as info-level
-                info!("AI state not loaded ({}): {}", Self::STATE_PATH, e);
-            }
-        }
-    }
-
-    pub async fn save_to_disk_async(&self) {
-        let state = self.build_persisted_state();
-        match serde_json::to_vec_pretty(&state) {
-            Ok(bytes) => {
-                if let Err(e) = tokio::fs::write(Self::STATE_PATH, bytes).await {
-                    warn!("Failed to save AI state to {}: {}", Self::STATE_PATH, e);
-                } else {
-                    debug!("Saved AI state to {}", Self::STATE_PATH);
-                }
-            }
-            Err(e) => warn!("Failed to serialize AI state: {}", e),
-        }
-    }
-
-    fn spawn_periodic_save(&self) {
-        let cloned = self.clone();
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
-            loop {
-                interval.tick().await;
-                cloned.save_to_disk_async().await;
-            }
-        });
-    }
-    // Public synchronous save helper (best-effort for shutdowns/tests)
-    pub fn save_now_blocking(&self) {
-        let state = self.build_persisted_state();
-        match serde_json::to_vec_pretty(&state) {
-            Ok(bytes) => {
-                if let Err(e) = std::fs::write(Self::STATE_PATH, bytes) {
-                    warn!("Failed to save AI state to {}: {}", Self::STATE_PATH, e);
-                } else {
-                    debug!("Saved AI state to {} (sync)", Self::STATE_PATH);
-                }
-            }
-            Err(e) => warn!("Failed to serialize AI state (sync): {}", e),
-        }
-    }
     fn candidate_macros() -> [MacroAction; 8] {
         [
             MacroAction::AdvanceDialog,
@@ -231,32 +102,40 @@ impl AIPipelineService {
             MacroAction::PressStart,
         ]
     }
-    fn situation_signature(situation: &GameSituation) -> u64 {
-        // Very simple signature: pack booleans and scene into bits
-        let mut sig: u64 = 0;
-        let scene_val = match situation.scene {
-            crate::pipeline::types::Scene::Unknown => 0u64,
-            crate::pipeline::types::Scene::Intro => 1u64,
-            crate::pipeline::types::Scene::MainMenu => 2u64,
-            crate::pipeline::types::Scene::Battle => 3u64,
+    // situation_signature removed with Q-learning
+
+    fn index_to_game_action(idx: usize) -> GameAction {
+        match idx {
+            0 => GameAction::A,
+            1 => GameAction::B,
+            2 => GameAction::Up,
+            3 => GameAction::Down,
+            4 => GameAction::Left,
+            5 => GameAction::Right,
+            6 => GameAction::Start,
+            7 => GameAction::Select,
+            8 => GameAction::L,
+            9 => GameAction::R,
+            _ => GameAction::X,
+        }
+    }
+
+    fn sample_action_from_prediction(pred: &RLPrediction) -> GameAction {
+        // Use first 11 actions (A, B, Up, Down, Left, Right, Start, Select, L, R, X)
+        let mut probs: Vec<f32> = pred.action_probabilities.iter().copied().take(11).collect();
+        if probs.is_empty() {
+            return random::<GameAction>();
+        }
+        if probs.iter().all(|&p| !p.is_finite() || p <= 0.0) {
+            probs.fill(1.0);
+        }
+        let dist = match WeightedIndex::new(&probs) {
+            Ok(d) => d,
+            Err(_) => return random::<GameAction>(),
         };
-        sig |= scene_val & 0xF;
-        if situation.has_text {
-            sig |= 1 << 4;
-        }
-        if situation.has_menu {
-            sig |= 1 << 5;
-        }
-        if situation.has_buttons {
-            sig |= 1 << 6;
-        }
-        if situation.in_dialog {
-            sig |= 1 << 7;
-        }
-        if let Some(row) = situation.cursor_row {
-            sig |= ((row as u64) & 0xFF) << 8;
-        }
-        sig
+        let mut rng = rand::rng();
+        let idx = dist.sample(&mut rng);
+        Self::index_to_game_action(idx)
     }
 
     fn map_action_to_macro(&self, action: &GameAction, situation: &GameSituation) -> MacroAction {
@@ -289,43 +168,14 @@ impl AIPipelineService {
 
     fn select_macro_and_action(
         &mut self,
-        client_id: Uuid,
+        _client_id: Uuid,
         situation: &GameSituation,
         _default_action: &GameAction,
     ) -> (MacroAction, GameAction) {
-        let sig = Self::situation_signature(situation);
-        let candidates = Self::candidate_macros();
-
-        // Special handling for Intro: strongly prefer PressStart; fallback after repeated failures
-        let chosen_macro = if situation.scene == crate::pipeline::types::Scene::Intro {
-            let streak = *self.failure_streak.get(&client_id).unwrap_or(&0);
-            if streak < 10 {
-                MacroAction::PressStart
-            } else {
-                MacroAction::AdvanceDialog
-            }
-        } else if random::<f32>() < self.epsilon {
-            // explore
-            let idx = (random::<u32>() as usize) % candidates.len();
-            candidates[idx]
-        } else {
-            // exploit
-            let mut best = candidates[0];
-            let mut best_q = f32::MIN;
-            for m in candidates.iter().copied() {
-                let q = *self.q_values.get(&(sig, m)).unwrap_or(&0.0);
-                if q > best_q {
-                    best_q = q;
-                    best = m;
-                }
-            }
-            best
-        };
-
-        // Map macro to an immediate action
+        // Policy path only: map the suggested action into a macro directly
+        let chosen_macro = self.map_action_to_macro(_default_action, situation);
         let action = self.macro_to_action(chosen_macro);
-        let final_action = action;
-        (chosen_macro, final_action)
+        (chosen_macro, action)
     }
 
     fn default_ticks_for_macro(&self, mac: MacroAction) -> u32 {
@@ -382,27 +232,8 @@ impl AIPipelineService {
         let (mac, act) = self.select_macro_and_action(client_id, situation, default_action);
         // Clamp walk duration if failing often
         let base_ticks = self.default_ticks_for_macro(mac);
-        let ticks = if matches!(
-            mac,
-            MacroAction::WalkUp
-                | MacroAction::WalkDown
-                | MacroAction::WalkLeft
-                | MacroAction::WalkRight
-        ) {
-            let s = *self.failure_streak.get(&client_id).unwrap_or(&0);
-            if s >= 40 {
-                2
-            } else if s >= 20 {
-                4
-            } else {
-                base_ticks
-            }
-        } else {
-            base_ticks
-        };
-        let sig = Self::situation_signature(situation);
-        let q = *self.q_values.get(&(sig, mac)).unwrap_or(&0.0);
-        info!("Chose macro {:?} (ticks={}) with Q={:.3}", mac, ticks, q);
+        let ticks = base_ticks;
+        info!("Chose macro {:?} (ticks={})", mac, ticks);
         self.active_macros.insert(
             client_id,
             ActiveMacroState {
@@ -413,37 +244,6 @@ impl AIPipelineService {
         act
     }
 
-    fn update_q_values(&mut self, client_id: &Uuid, reward_override: Option<f32>) {
-        // Requires at least one previous tuple stored in last_action_and_situation
-        if let Some((last_action, last_situation, _)) =
-            self.last_action_and_situation.get(client_id)
-        {
-            // Use provided reward if available; otherwise fall back to success heuristic
-            let sig = Self::situation_signature(last_situation);
-            let macro_act = self.map_action_to_macro(last_action, last_situation);
-            let reward: f32 = if let Some(r) = reward_override {
-                r
-            } else {
-                let success = *self.last_success.get(client_id).unwrap_or(&false);
-                if success { 1.0 } else { -0.01 }
-            };
-            let alpha = 0.2f32;
-            let q = self.q_values.entry((sig, macro_act)).or_insert(0.0);
-            *q = *q + alpha * (reward - *q);
-            // Update failure streak and epsilon decay
-            let streak = self.failure_streak.entry(*client_id).or_insert(0);
-            let success_now = reward > 0.0;
-            if success_now {
-                *streak = 0;
-                self.epsilon = (self.epsilon * self.epsilon_decay).max(self.min_epsilon);
-            } else {
-                *streak = streak.saturating_add(1);
-                if *streak % 20 == 0 {
-                    self.epsilon = (self.epsilon + 0.02).min(0.5);
-                }
-            }
-        }
-    }
     pub fn new(action_tx: mpsc::Sender<(Uuid, GameAction)>) -> Self {
         let stats = AIStats {
             total_frames_processed: 0,
@@ -455,7 +255,7 @@ impl AIPipelineService {
             total_actions_sent: 0,
         };
         let (training_tx, _training_rx) = mpsc::channel(1000);
-        let mut this = Self {
+        let this = Self {
             smart_action_service: Arc::new(Mutex::new(SmartActionService::new())),
             decision_history: Arc::new(Mutex::new(HashMap::new())),
             action_tx,
@@ -463,13 +263,7 @@ impl AIPipelineService {
             last_action_and_situation: HashMap::new(),
             image_hasher: Arc::new(PerceptualHasher::default()),
             hash_distance_history: HashMap::new(),
-            q_values: HashMap::new(),
-            epsilon: 0.2,
-            last_success: HashMap::new(),
             active_macros: HashMap::new(),
-            min_epsilon: 0.05,
-            epsilon_decay: 0.999,
-            failure_streak: HashMap::new(),
             stats_shared: Arc::new(Mutex::new(stats)),
             debug_snapshot: Arc::new(Mutex::new(AIDebugSnapshot::default())),
             fps_window_start: Instant::now(),
@@ -484,11 +278,8 @@ impl AIPipelineService {
                 10_000,
                 training_tx,
             ))),
+            use_policy: true,
         };
-        // Try loading persisted state from disk on creation
-        this.try_load_from_disk();
-        // Spawn periodic save task
-        this.spawn_periodic_save();
         this
     }
 
@@ -513,7 +304,7 @@ impl AIPipelineService {
 
         // First, analyze the situation (brief lock)
         let current_situation = {
-            let mut smart_service = self.smart_action_service.lock().unwrap();
+            let smart_service = self.smart_action_service.lock().unwrap();
             smart_service.analyze_situation(&frame)
         };
 
@@ -559,7 +350,6 @@ impl AIPipelineService {
                 || (last_situation.scene == crate::pipeline::types::Scene::Intro
                     && menu_or_dialog_now);
 
-            self.last_success.insert(client_id, was_successful);
             {
                 let mut smart_service = self.smart_action_service.lock().unwrap();
                 smart_service.record_experience(
@@ -583,7 +373,7 @@ impl AIPipelineService {
             self.intro_scene_since.remove(&client_id);
         }
 
-        // Make a decision (brief lock)
+        // Make a decision (brief lock) for explainability/logging
         let decision = {
             let mut smart_service = self.smart_action_service.lock().unwrap();
             smart_service.make_decision(&current_situation)
@@ -601,7 +391,11 @@ impl AIPipelineService {
             hist.entry(client_id).or_default().push(ai_decision);
         }
 
-        // Choose macro via epsilon-greedy and map to an action
+        // PPO: get policy prediction for current frame and sample an action
+        let prediction = self.rl_service.call(frame.clone()).await?;
+        let policy_action = Self::sample_action_from_prediction(&prediction);
+
+        // Choose macro using either policy-guided mapping or tabular Q
         let selection_situation = current_situation.clone();
         // Use recent median distance to inform early stopping
         let image_changed_now = self
@@ -620,19 +414,14 @@ impl AIPipelineService {
         let action_to_send = self.drive_macro_action(
             client_id,
             &selection_situation,
-            &decision.action,
+            &policy_action,
             image_changed_now,
         );
-        // Generate RL prediction for current frame
-        let prediction = self.rl_service.call(frame.clone()).await?;
         // Process reward and collect experience if available (avoid holding std::sync locks across await)
         let maybe_exp = {
             let mut rp = self.reward_processor.lock().unwrap();
             rp.process_frame(&frame, action_to_send.clone(), prediction.clone())
         };
-        // Update Q-values using reward for the previous transition, before recording current as last
-        let reward_for_prev = maybe_exp.as_ref().map(|e| e.reward);
-        self.update_q_values(&client_id, reward_for_prev);
         if let Some(exp) = maybe_exp {
             let mut collector = self.experience_collector.lock().await;
             collector.collect_experience(exp).await;
@@ -644,7 +433,7 @@ impl AIPipelineService {
         self.last_action_and_situation.insert(
             client_id,
             (
-                decision.action.clone(),
+                action_to_send.clone(),
                 selection_situation.clone(),
                 small_curr_for_cache,
             ),
@@ -700,13 +489,11 @@ impl AIPipelineService {
         self.debug_snapshot
             .lock()
             .map(|mut snap| {
-                snap.epsilon = self.epsilon;
                 snap.last_client = Some(client_id);
                 snap.active_macro = self
                     .active_macros
                     .get(&client_id)
                     .map(|st| (st.action, st.ticks_left));
-                snap.failure_streak = *self.failure_streak.get(&client_id).unwrap_or(&0);
                 snap.median_distance =
                     self.hash_distance_history.get(&client_id).and_then(|hist| {
                         if hist.is_empty() {
@@ -753,55 +540,9 @@ impl AIPipelineService {
             .map(|m| m.get(client_id).cloned().unwrap_or_default())
             .unwrap_or_default()
     }
-
-    pub fn get_learning_stats(
-        &self,
-    ) -> Option<crate::pipeline::services::learning::smart_action_service::LearningStats> {
-        let smart_service = self.smart_action_service.lock().ok()?;
-        Some(smart_service.get_learning_stats())
-    }
-
-    pub async fn record_action_result(
-        &self,
-        client_id: Uuid,
-        action: GameAction,
-        was_successful: bool,
-    ) -> Result<(), AppError> {
-        // Get the last decision for this client to record the result
-        if let Ok(hist) = self.decision_history.lock() {
-            if let Some(last_decision) = hist.get(&client_id).and_then(|v| v.last()) {
-                let mut smart_service = self.smart_action_service.lock().unwrap();
-
-                // Create a mock situation for recording (in real implementation, you'd pass the actual situation)
-                let mock_situation = crate::pipeline::services::learning::smart_action_service::GameSituation {
-                    scene: crate::pipeline::types::Scene::Unknown,
-                    has_text: false,
-                    has_menu: false,
-                    has_buttons: false,
-                    in_dialog: false,
-                    cursor_row: None,
-                    dominant_colors: vec![],
-                    urgency_level: crate::pipeline::services::learning::smart_action_service::UrgencyLevel::Low,
-                };
-
-                let action_clone = action.clone();
-                smart_service.record_experience(mock_situation, action_clone, was_successful);
-                info!(
-                    "Recorded action result for client {}: {:?} -> success={}",
-                    client_id, action, was_successful
-                );
-            }
-        }
-        Ok(())
-    }
 }
 
-impl Drop for AIPipelineService {
-    fn drop(&mut self) {
-        // Best-effort save on shutdown
-        self.save_now_blocking();
-    }
-}
+// Q-learning persistence hooks removed
 
 // Service implementation for processing frames
 impl AIPipelineService {
