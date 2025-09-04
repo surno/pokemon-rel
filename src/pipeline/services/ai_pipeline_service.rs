@@ -50,6 +50,10 @@ pub struct AIPipelineService {
     failure_streak: HashMap<Uuid, u32>,
     stats_shared: Arc<Mutex<AIStats>>,
     debug_snapshot: Arc<Mutex<AIDebugSnapshot>>,
+    // FPS tracking
+    fps_window_start: Instant,
+    fps_frames: usize,
+    fps_decisions: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -318,6 +322,9 @@ impl AIPipelineService {
             failure_streak: HashMap::new(),
             stats_shared: Arc::new(Mutex::new(stats)),
             debug_snapshot: Arc::new(Mutex::new(AIDebugSnapshot::default())),
+            fps_window_start: Instant::now(),
+            fps_frames: 0,
+            fps_decisions: 0,
         }
     }
 
@@ -337,6 +344,8 @@ impl AIPipelineService {
         let client_id = frame.client;
 
         self.stats.total_frames_processed += 1;
+        // Count a processed frame for FPS
+        self.fps_frames += 1;
 
         let (current_situation, decision) = {
             let mut smart_service = self.smart_action_service.lock().unwrap();
@@ -456,8 +465,21 @@ impl AIPipelineService {
         );
 
         self.stats.total_decisions_made += 1;
+        // Count a decision for FPS
+        self.fps_decisions += 1;
         self.update_average_confidence(decision.confidence);
         self.stats.last_decision_time = Some(start_time);
+        // Update FPS window
+        let now = Instant::now();
+        let elapsed = now.duration_since(self.fps_window_start);
+        if elapsed.as_secs_f32() >= 1.0 {
+            let secs = elapsed.as_secs_f32();
+            self.stats.frames_per_sec = self.fps_frames as f32 / secs;
+            self.stats.decisions_per_sec = self.fps_decisions as f32 / secs;
+            self.fps_frames = 0;
+            self.fps_decisions = 0;
+            self.fps_window_start = now;
+        }
         // mirror stats into shared copy for UI
         self.stats_shared
             .lock()
