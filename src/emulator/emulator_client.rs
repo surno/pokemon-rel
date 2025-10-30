@@ -4,7 +4,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use crate::{error::AppError, pipeline::GameAction};
+use crate::{common::game_action::GameAction, error::AppError};
 
 pub struct EmulatorClient {
     cancel_token: CancellationToken,

@@ -1,11 +1,8 @@
-mod app;
+mod common;
 mod config;
 mod emulator;
 mod error;
-mod intake;
-mod pipeline;
 
-use crate::app::multiclient_app::MultiClientApp;
 use crate::config::Settings;
 use crate::error::AppError;
 use tracing::Level;
@@ -18,6 +15,5 @@ fn init_logging() {
 async fn main() -> Result<(), AppError> {
     let settings = Settings::new().map_err(|e| AppError::Config(e.to_string()))?;
     init_logging();
-    MultiClientApp::start_gui(&settings);
     Ok(())
 }

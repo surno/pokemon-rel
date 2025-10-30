@@ -1,13 +1,6 @@
-use super::frame_context::FrameContext;
 use crate::error::AppError;
-use async_trait::async_trait;
-
-/// Chain of Responsibility pattern for processing pipeline
-#[async_trait]
-pub trait ProcessingStep: Send + Sync {
-    async fn process(&mut self, context: &mut FrameContext) -> Result<(), AppError>;
-    fn name(&self) -> &'static str;
-}
+use crate::pipeline::orchestration::frame_context::FrameContext;
+use crate::pipeline::orchestration::processing_step::ProcessingStep;
 
 /// A pipeline that processes frames through a chain of steps
 pub struct ProcessingPipeline {
