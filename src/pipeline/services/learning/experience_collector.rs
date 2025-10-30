@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 use rand::prelude::IteratorRandom;
 use tokio::sync::mpsc;
@@ -22,30 +22,84 @@ pub struct Experience {
     pub detailed_reward: MultiObjectiveReward,
 }
 
+/// Experience buffer using industry-standard data structures:
+/// - VecDeque for efficient FIFO operations (O(1) push/pop)
+/// - HashMap for fast episode-based lookups (O(1) average case)
 pub struct ExperienceBuffer {
+    /// Main experience storage (preserves temporal order)
     pub experiences: VecDeque<Experience>,
+    /// Fast lookup: episode_id -> Vec<indices> into experiences
+    /// Uses HashMap for O(1) episode lookups
+    episode_index: HashMap<UUid, Vec<usize>>,
     max_size: usize,
     current_episode_id: UUid,
+    /// Track the current offset for index calculation when VecDeque wraps
+    start_index_offset: usize,
 }
 
 impl ExperienceBuffer {
     pub fn new(max_size: usize) -> Self {
         Self {
             experiences: VecDeque::new(),
+            episode_index: HashMap::new(),
             max_size,
             current_episode_id: UUid::new_v4(),
+            start_index_offset: 0,
         }
     }
 
+    /// Add an experience to the buffer
+    /// Maintains both VecDeque (temporal order) and HashMap (episode indexing)
     pub fn add_experience(&mut self, experience: Experience) {
+        let episode_id = experience.episode_id;
+        let current_index = self.experiences.len() + self.start_index_offset;
+        
+        // Update episode index
+        self.episode_index
+            .entry(episode_id)
+            .or_insert_with(Vec::new)
+            .push(current_index);
+        
+        // Add to buffer
         self.experiences.push_back(experience);
+        
+        // Maintain max size (FIFO eviction)
         if self.experiences.len() > self.max_size {
-            self.experiences.pop_front();
+            if let Some(removed) = self.experiences.pop_front() {
+                // Remove from episode index
+                if let Some(indices) = self.episode_index.get_mut(&removed.episode_id) {
+                    indices.retain(|&i| i != self.start_index_offset);
+                    if indices.is_empty() {
+                        self.episode_index.remove(&removed.episode_id);
+                    }
+                }
+                self.start_index_offset += 1;
+            }
         }
     }
 
     pub fn start_new_episode(&mut self) {
         self.current_episode_id = UUid::new_v4();
+    }
+    
+    /// Get experiences for a specific episode (O(1) lookup + O(k) where k = episode size)
+    pub fn get_episode_experiences(&self, episode_id: &UUid) -> Vec<Experience> {
+        if let Some(indices) = self.episode_index.get(episode_id) {
+            indices
+                .iter()
+                .filter_map(|&idx| {
+                    let adjusted_idx = idx.saturating_sub(self.start_index_offset);
+                    self.experiences.get(adjusted_idx).cloned()
+                })
+                .collect()
+        } else {
+            Vec::new()
+        }
+    }
+    
+    /// Get experiences for the current episode
+    pub fn get_current_episode_experiences(&self) -> Vec<Experience> {
+        self.get_episode_experiences(&self.current_episode_id)
     }
 
     pub fn get_recent_experiences(&self, n: usize) -> Vec<Experience> {
