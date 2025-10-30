@@ -27,7 +27,6 @@ pub struct MultiClientApp {
     frame_rx: broadcast::Receiver<EnrichedFrame>,
     show_frame: bool,
     selected_client: Option<Uuid>,
-    emulator_client: EmulatorClient,
     client_manager: ClientManager,
     client_manager_handle: ClientManagerHandle,
     server_task: JoinHandle<()>,
@@ -46,7 +45,6 @@ impl MultiClientApp {
         frame_rx: broadcast::Receiver<EnrichedFrame>,
         client_manager: ClientManager,
         client_manager_handle: ClientManagerHandle,
-        emulator_client: EmulatorClient,
         mut server: Server,
         ai_pipeline_adapter: UIPipelineAdapter,
     ) -> Self {
@@ -78,7 +76,6 @@ impl MultiClientApp {
             frame_rx,
             show_frame: true,
             selected_client: None,
-            emulator_client,
             client_manager,
             client_manager_handle,
             server_task,
@@ -156,7 +153,6 @@ impl MultiClientApp {
                     frame_rx,
                     client_manager,
                     client_manager_handle,
-                    emulator_client,
                     server,
                     ai_pipeline_adapter,
                 )))

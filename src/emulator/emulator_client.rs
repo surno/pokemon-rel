@@ -1,6 +1,7 @@
 use image::{DynamicImage, RgbImage};
 use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 use tokio::sync::mpsc::{Receiver, Sender};
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::{error::AppError, pipeline::GameAction};
@@ -10,6 +11,7 @@ pub struct EmulatorClient {
     frame_tx: Sender<DynamicImage>,
     rom_path: String,
     id: Uuid,
+    stop_requested: CancellationToken,
 }
 
 impl EmulatorClient {
@@ -23,6 +25,7 @@ impl EmulatorClient {
             frame_tx,
             rom_path,
             id: Uuid::new_v4(),
+            stop_requested: CancellationToken::new(),
         }
     }
 
@@ -106,13 +109,13 @@ impl EmulatorClient {
         }
     }
 
-    pub fn run(&mut self) {
+    pub fn start(&mut self) {
         tracing::info!("EmulatorClient starting game, with unique id: {}", self.id);
 
         let desmume = self.initalize_desmume(&self.rom_path.clone(), true);
         match desmume {
             Ok(mut desmume) => {
-                while desmume.is_running() {
+                while desmume.is_running() && !self.stop_requested.is_cancelled() {
                     match self.action_rx.try_recv() {
                         Ok(action) => {
                             self.prepare_action(action, &mut desmume);
@@ -129,10 +132,15 @@ impl EmulatorClient {
                     self.release_key(&mut desmume);
                     self.process_frame(&mut desmume);
                 }
+                tracing::info!("EmulatorClient stopped game, with unique id: {}", self.id);
             }
             Err(e) => {
                 tracing::error!("Error initializing desmume: {}", e);
             }
         }
+    }
+
+    pub fn stop(&mut self) {
+        self.stop_requested.cancel();
     }
 }
