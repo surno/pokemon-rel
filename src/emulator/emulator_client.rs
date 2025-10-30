@@ -1,18 +1,54 @@
 use image::{DynamicImage, RgbImage};
 use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 use tokio::sync::mpsc::{Receiver, Sender};
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::{error::AppError, pipeline::GameAction};
 
 pub struct EmulatorClient {
+    cancel_token: CancellationToken,
+    emulator_thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl EmulatorClient {
+    pub fn new(
+        action_rx: Receiver<GameAction>,
+        frame_tx: Sender<DynamicImage>,
+        rom_path: String,
+    ) -> Self {
+        let cancel_token = CancellationToken::new();
+        let mut emulator = Emulator::new(action_rx, frame_tx, rom_path);
+        Self {
+            cancel_token: cancel_token.clone(),
+            emulator_thread: Some(std::thread::spawn(move || {
+                emulator.run(cancel_token.clone())
+            })),
+        }
+    }
+
+    pub fn stop(&mut self) {
+        self.cancel_token.cancel();
+        if let Some(thread) = self.emulator_thread.take() {
+            thread.join().expect("Emulator thread panicked");
+        }
+    }
+}
+
+impl Drop for EmulatorClient {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+struct Emulator {
     action_rx: Receiver<GameAction>,
     frame_tx: Sender<DynamicImage>,
     rom_path: String,
     id: Uuid,
 }
 
-impl EmulatorClient {
+impl Emulator {
     pub fn new(
         action_rx: Receiver<GameAction>,
         frame_tx: Sender<DynamicImage>,
@@ -25,7 +61,6 @@ impl EmulatorClient {
             id: Uuid::new_v4(),
         }
     }
-
     fn initalize_desmume(
         &mut self,
         rom_path: &str,
@@ -125,13 +160,13 @@ impl EmulatorClient {
         }
     }
 
-    pub fn run(&mut self) {
-        tracing::info!("EmulatorClient starting game, with unique id: {}", self.id);
+    pub fn run(&mut self, cancel_token: CancellationToken) {
+        tracing::info!("Emulator starting game, with unique id: {}", self.id);
 
         let desmume = self.initalize_desmume(&self.rom_path.clone(), true);
         match desmume {
             Ok(mut desmume) => {
-                while desmume.is_running() {
+                while desmume.is_running() && !cancel_token.is_cancelled() {
                     match self.action_rx.try_recv() {
                         Ok(action) => {
                             self.prepare_action(action, &mut desmume);
@@ -148,10 +183,11 @@ impl EmulatorClient {
                     self.release_key(&mut desmume);
                     self.process_frame(&mut desmume);
                 }
-                tracing::info!("EmulatorClient stopped game, with unique id: {}", self.id);
+                tracing::info!("Emulator stopped game, with unique id: {}", self.id);
             }
             Err(e) => {
                 tracing::error!("Error initializing desmume: {}", e);
+                tracing::info!("Emulator stopped game, with unique id: {}", self.id);
             }
         }
     }

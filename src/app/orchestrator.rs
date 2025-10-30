@@ -10,6 +10,10 @@ impl AppOrchestrator {
     pub(crate) fn new(emulator_client: EmulatorClient) -> Self {
         Self { emulator_client }
     }
+
+    pub fn stop(&mut self) {
+        self.emulator_client.stop();
+    }
 }
 
 pub struct AppOrchestratorBuilder {
