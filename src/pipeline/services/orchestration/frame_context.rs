@@ -1,5 +1,6 @@
 use crate::pipeline::services::learning::smart_action_service::{ActionDecision, GameSituation};
 use crate::pipeline::{EnrichedFrame, GameAction, RLPrediction};
+use crate::pipeline::services::orchestration::phase_timings::PhaseTimings;
 use std::time::Instant;
 use uuid::Uuid;
 
@@ -16,6 +17,7 @@ pub struct FrameContext {
     pub macro_action: Option<crate::pipeline::MacroAction>,
     pub image_changed: bool,
     pub metrics: FrameMetrics,
+    pub phase_timings: PhaseTimings,
     pub processing_start: Instant,
 }
 
@@ -32,6 +34,7 @@ impl FrameContext {
             macro_action: None,
             image_changed: false,
             metrics: FrameMetrics::new(),
+            phase_timings: PhaseTimings::new(),
             processing_start: Instant::now(),
         }
     }

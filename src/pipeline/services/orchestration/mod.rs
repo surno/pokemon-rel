@@ -1,13 +1,21 @@
 pub mod action_selector;
+pub mod experience_journal;
 pub mod frame_context;
+pub mod instrumented_step;
 pub mod metrics;
+pub mod phase_timings;
 pub mod pipeline_orchestrator;
+pub mod pipeline_phase;
 pub mod processing_step;
 pub mod ui_adapter;
 
 pub use action_selector::{ActionSelection, ActionSelector};
-pub use frame_context::{FrameContext, FrameMetrics};
+pub use experience_journal::{ExperienceJournalEntry, ExperienceJournalWriter, InMemoryJournalWriter};
+pub use frame_context::{FrameContext, FrameMetrics, ProcessingStepType};
+pub use instrumented_step::{InstrumentedStep, StepInstrumentation};
 pub use metrics::{MetricsCollector, MetricsObserver};
+pub use phase_timings::PhaseTimings;
 pub use pipeline_orchestrator::AIPipelineOrchestrator;
-pub use processing_step::{ProcessingPipeline, ProcessingStep};
+pub use pipeline_phase::{CompositePhase, PhaseHandler, PipelinePhase, ProcessingPhase};
+pub use processing_step::{HierarchicalPipeline, ProcessingPipeline, ProcessingStep};
 pub use ui_adapter::UIPipelineAdapter;
