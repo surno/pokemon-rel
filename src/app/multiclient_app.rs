@@ -111,13 +111,6 @@ impl MultiClientApp {
 
         let server = Server::new(3344, client_manager_handle.clone());
 
-        let mut emulator_client = EmulatorClient::new(
-            1,
-            client_manager_handle.clone(),
-            settings.emulator.rom_path.clone(),
-        );
-        emulator_client.start();
-
         // Create performance-optimized AI pipeline for maximum FPS
         let mut ai_pipeline =
             PerformanceOptimizedPipelineFactory::create_ultra_fast_pipeline(action_tx.clone())

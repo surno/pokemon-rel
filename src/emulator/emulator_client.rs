@@ -1,128 +1,138 @@
 use image::{DynamicImage, RgbImage};
-use tokio::{
-    sync::{mpsc, mpsc::error::TrySendError},
-    task::JoinHandle,
-};
+use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
+use tokio::sync::mpsc::{Receiver, Sender};
+use uuid::Uuid;
 
-use crate::{
-    emulator::{EmulatorReader, EmulatorWriter},
-    intake::client::manager::ClientManagerHandle,
-    pipeline::GameAction,
-};
+use crate::{error::AppError, pipeline::GameAction};
 
 pub struct EmulatorClient {
-    tasks: Vec<JoinHandle<()>>,
-    client_manager: ClientManagerHandle,
-    num_clients: usize,
+    action_rx: Receiver<GameAction>,
+    frame_tx: Sender<DynamicImage>,
     rom_path: String,
+    id: Uuid,
 }
 
 impl EmulatorClient {
-    pub fn new(num_clients: usize, client_manager: ClientManagerHandle, rom_path: String) -> Self {
+    pub fn new(
+        action_rx: Receiver<GameAction>,
+        frame_tx: Sender<DynamicImage>,
+        rom_path: String,
+    ) -> Self {
         Self {
-            tasks: vec![],
-            client_manager,
-            num_clients,
+            action_rx,
+            frame_tx,
             rom_path,
+            id: Uuid::new_v4(),
         }
     }
 
-    pub fn start(&mut self) {
-        for _ in 0..self.num_clients {
-            let (frame_tx, frame_rx) = mpsc::channel::<DynamicImage>(10000);
-            let (action_tx, mut action_rx) = mpsc::channel::<GameAction>(100);
-            let client_manager_clone = self.client_manager.clone();
-            let rom_path = self.rom_path.clone();
-            self.tasks.push(tokio::spawn(async move {
-                match client_manager_clone
-                    .add_client(
-                        Box::new(EmulatorReader::new(frame_rx)),
-                        Box::new(EmulatorWriter::new(action_tx)),
-                    )
-                    .await
-                {
-                    Ok(id) => {
-                        let emulator_task = tokio::task::spawn_blocking(move || {
-                            tracing::info!("Emulator client starting game, with unique id: {}", id);
-                            let mut desmume = desmume_rs::DeSmuME::init().unwrap();
-                            if let Err(e) = desmume.open(&rom_path, true) {
-                                let err_msg = format!("Failed to open ROM at path '{}': {:?}. Shutting down emulator task.", rom_path, e);
-                                tracing::error!("{}", err_msg);
-                                // Here, you could send this error back to the main app to be displayed in the UI
-                                return;
-                            };
-                            desmume.volume_set(0);
-                            tracing::info!("Emulator client opened game, with unique id: {}", id);
-                            while desmume.is_running() {
-                                if let Ok(action) = action_rx.try_recv() {
-                                    // Map GameAction to keypad bitmask
-                                    let mask: u16 = match action {
-                                        GameAction::A => 1 << 0,
-                                        GameAction::B => 1 << 1,
-                                        GameAction::Select => 1 << 2,
-                                        GameAction::Start => 1 << 3,
-                                        GameAction::Right => 1 << 4,
-                                        GameAction::Left => 1 << 5,
-                                        GameAction::Up => 1 << 6,
-                                        GameAction::Down => 1 << 7,
-                                        GameAction::R => 1 << 8,
-                                        GameAction::L => 1 << 9,
-                                        GameAction::X => 1 << 10,
-                                        // If GameAction::Y does not exist, map nothing for that slot
-                                        _ => 0,
-                                    };
-                                    if mask != 0 {
-                                        desmume.input_mut().keypad_update(mask);
-                                        tracing::info!("Applied keypad mask {:#018b} for action {:?}", mask, action);
-                                    } else {
-                                        tracing::warn!("No keypad mapping for action {:?}", action);
-                                    }
-                                }
-                                desmume.cycle();
+    fn initalize_desmume(
+        &mut self,
+        rom_path: &str,
+        auto_resume: bool,
+    ) -> Result<desmume_rs::DeSmuME, AppError> {
+        let mut desmume =
+            desmume_rs::DeSmuME::init().map_err(|e| AppError::Emulator(e.to_string()))?;
+        if let Err(e) = desmume.open(rom_path, auto_resume) {
+            let err_msg = format!(
+                "Failed to open ROM at path '{}': {:?}. Shutting down emulator task.",
+                rom_path, e
+            );
+            tracing::error!("{}", err_msg);
+            return Err(AppError::Emulator(err_msg));
+        }
+        // Set volume to 0 to avoid audio output, it's annoying and unnecessary.
+        desmume.volume_set(0);
+        Ok(desmume)
+    }
 
-                                // Release all buttons between cycles
-                                desmume.input_mut().keypad_update(0);
-                                desmume.cycle();
+    fn release_key(&mut self, desmume: &mut desmume_rs::DeSmuME) {
+        desmume.input_mut().keypad_update(0);
+    }
 
-                                let buffer = desmume.display_buffer_as_rgbx();
-                                let mut new_buffer: Vec<u8> = Vec::with_capacity(buffer.len() / 4 * 3);
-                                // -- pixel order is B G R A; convert to R G B
-                                for chunk in buffer.chunks_exact(4) {
-                                    // chunk = [B, G, R, A]
-                                    new_buffer.extend_from_slice(&[chunk[2], chunk[1], chunk[0]]);
-                                }
+    fn prepare_action(&mut self, action: GameAction, desmume: &mut desmume_rs::DeSmuME) {
+        let mask: u16 = match action {
+            GameAction::A => 1 << 0,
+            GameAction::B => 1 << 1,
+            GameAction::Select => 1 << 2,
+            GameAction::Start => 1 << 3,
+            GameAction::Right => 1 << 4,
+            GameAction::Left => 1 << 5,
+            GameAction::Up => 1 << 6,
+            GameAction::Down => 1 << 7,
+            GameAction::R => 1 << 8,
+            GameAction::L => 1 << 9,
+            GameAction::X => 1 << 10,
+            // If GameAction::Y does not exist, map nothing for that slot
+            _ => 0,
+        };
+        if mask != 0 {
+            desmume.input_mut().keypad_update(mask);
+            tracing::info!("Applied keypad mask {:#018b} for action {:?}", mask, action);
+        } else {
+            tracing::warn!("No keypad mapping for action {:?}", action);
+        }
+    }
 
-                                let image = DynamicImage::ImageRgb8(
-                                    RgbImage::from_raw(
-                                        desmume_rs::SCREEN_WIDTH as u32,
-                                        desmume_rs::SCREEN_HEIGHT_BOTH as u32,
-                                        new_buffer,
-                                    )
-                                    .unwrap(),
-                                );
+    fn process_frame(&mut self, desmume: &mut desmume_rs::DeSmuME) {
+        let buffer = desmume.display_buffer_as_rgbx();
+        let mut new_buffer: Vec<u8> = Vec::with_capacity(buffer.len() / 4 * 3);
+        // -- pixel order is B G R A; convert to R G B
+        for chunk in buffer.chunks_exact(4) {
+            // chunk = [B, G, R, A]
+            new_buffer.extend_from_slice(&[chunk[2], chunk[1], chunk[0]]);
+        }
 
-                                match frame_tx.try_send(image) {
-                                    Ok(_) => {}
-                                    Err(err) => match err {
-                                        TrySendError::Full(_) => {
-                                            // Drop frame to keep real-time
-                                            tracing::warn!("Dropping frame: channel full");
-                                        }
-                                        TrySendError::Closed(_) => {
-                                            tracing::warn!("Frame channel closed, stopping emulator loop");
-                                            break;
-                                        }
-                                    },
-                                }
-                            }
-                        });
-                        emulator_task.await.unwrap();
-                    }
-                    Err(e) => {
-                        eprintln!("Error adding client: {}", e);
-                    }
+        let image = DynamicImage::ImageRgb8(
+            RgbImage::from_raw(
+                desmume_rs::SCREEN_WIDTH as u32,
+                desmume_rs::SCREEN_HEIGHT_BOTH as u32,
+                new_buffer,
+            )
+            .unwrap(),
+        );
+
+        match self.frame_tx.try_send(image) {
+            Ok(_) => {}
+            Err(err) => match err {
+                TrySendError::Full(_) => {
+                    // Drop frame to keep real-time
+                    tracing::warn!("Dropping frame: channel full");
                 }
-            }));
+                TrySendError::Closed(_) => {
+                    tracing::warn!("Frame channel closed, stopping emulator loop");
+                }
+            },
+        }
+    }
+
+    pub fn run(&mut self) {
+        tracing::info!("EmulatorClient starting game, with unique id: {}", self.id);
+
+        let desmume = self.initalize_desmume(&self.rom_path.clone(), true);
+        match desmume {
+            Ok(mut desmume) => {
+                while desmume.is_running() {
+                    match self.action_rx.try_recv() {
+                        Ok(action) => {
+                            self.prepare_action(action, &mut desmume);
+                        }
+                        Err(TryRecvError::Disconnected) => {
+                            tracing::error!("Action channel closed, stopping emulator loop");
+                            break;
+                        }
+                        Err(_) => {
+                            // No action to process, cycle the emulator and process the frame
+                        }
+                    }
+                    desmume.cycle();
+                    self.release_key(&mut desmume);
+                    self.process_frame(&mut desmume);
+                }
+            }
+            Err(e) => {
+                tracing::error!("Error initializing desmume: {}", e);
+            }
         }
     }
 }
