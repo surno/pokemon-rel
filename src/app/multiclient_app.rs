@@ -1,7 +1,6 @@
 use crate::config::Settings;
 use crate::emulator::EmulatorClient;
 use crate::error::AppError;
-use crate::intake::client::manager::{ClientManager, ClientManagerHandle};
 use crate::network::server::Server;
 use crate::pipeline::{
     EnrichedFrame, GameAction,

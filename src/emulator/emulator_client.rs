@@ -1,7 +1,6 @@
 use image::{DynamicImage, RgbImage};
 use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 use tokio::sync::mpsc::{Receiver, Sender};
-use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::{error::AppError, pipeline::GameAction};
@@ -11,7 +10,6 @@ pub struct EmulatorClient {
     frame_tx: Sender<DynamicImage>,
     rom_path: String,
     id: Uuid,
-    stop_requested: CancellationToken,
 }
 
 impl EmulatorClient {
@@ -25,7 +23,6 @@ impl EmulatorClient {
             frame_tx,
             rom_path,
             id: Uuid::new_v4(),
-            stop_requested: CancellationToken::new(),
         }
     }
 
@@ -77,7 +74,7 @@ impl EmulatorClient {
         }
     }
 
-    fn process_frame(&mut self, desmume: &mut desmume_rs::DeSmuME) {
+    fn get_dynamic_image(&mut self, desmume: &mut desmume_rs::DeSmuME) -> Option<DynamicImage> {
         let buffer = desmume.display_buffer_as_rgbx();
         let mut new_buffer: Vec<u8> = Vec::with_capacity(buffer.len() / 4 * 3);
         // -- pixel order is B G R A; convert to R G B
@@ -85,37 +82,56 @@ impl EmulatorClient {
             // chunk = [B, G, R, A]
             new_buffer.extend_from_slice(&[chunk[2], chunk[1], chunk[0]]);
         }
-
-        let image = DynamicImage::ImageRgb8(
-            RgbImage::from_raw(
-                desmume_rs::SCREEN_WIDTH as u32,
-                desmume_rs::SCREEN_HEIGHT_BOTH as u32,
-                new_buffer,
-            )
-            .unwrap(),
+        let rgb_image = RgbImage::from_raw(
+            desmume_rs::SCREEN_WIDTH as u32,
+            desmume_rs::SCREEN_HEIGHT_BOTH as u32,
+            new_buffer,
         );
-
-        match self.frame_tx.try_send(image) {
-            Ok(_) => {}
-            Err(err) => match err {
-                TrySendError::Full(_) => {
-                    // Drop frame to keep real-time
-                    tracing::warn!("Dropping frame: channel full");
-                }
-                TrySendError::Closed(_) => {
-                    tracing::warn!("Frame channel closed, stopping emulator loop");
-                }
-            },
+        match rgb_image {
+            Some(rgb_image) => {
+                let image = DynamicImage::ImageRgb8(rgb_image);
+                return Some(image);
+            }
+            None => {
+                tracing::error!("Failed to convert buffer to RGB image");
+                return None;
+            }
         }
     }
 
-    pub fn start(&mut self) {
+    fn process_frame(&mut self, desmume: &mut desmume_rs::DeSmuME) {
+        let image = self.get_dynamic_image(desmume);
+        match image {
+            Some(image) => {
+                match self.frame_tx.try_send(image) {
+                    Ok(_) => {}
+                    Err(err) => match err {
+                        TrySendError::Full(_) => {
+                            // Drop frame to keep real-time
+                            tracing::warn!("Dropping frame: channel full");
+                        }
+                        TrySendError::Closed(_) => {
+                            tracing::warn!("Frame channel closed, stopping emulator loop");
+                        }
+                        _ => {
+                            tracing::error!("Failed to send frame: {}", err);
+                        }
+                    },
+                }
+            }
+            None => {
+                tracing::error!("Failed to get dynamic image");
+            }
+        }
+    }
+
+    pub fn run(&mut self) {
         tracing::info!("EmulatorClient starting game, with unique id: {}", self.id);
 
         let desmume = self.initalize_desmume(&self.rom_path.clone(), true);
         match desmume {
             Ok(mut desmume) => {
-                while desmume.is_running() && !self.stop_requested.is_cancelled() {
+                while desmume.is_running() {
                     match self.action_rx.try_recv() {
                         Ok(action) => {
                             self.prepare_action(action, &mut desmume);
@@ -138,9 +154,5 @@ impl EmulatorClient {
                 tracing::error!("Error initializing desmume: {}", e);
             }
         }
-    }
-
-    pub fn stop(&mut self) {
-        self.stop_requested.cancel();
     }
 }
