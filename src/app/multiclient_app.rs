@@ -1,7 +1,5 @@
 use crate::config::Settings;
-use crate::emulator::EmulatorClient;
 use crate::error::AppError;
-use crate::network::server::Server;
 use crate::pipeline::{
     EnrichedFrame, GameAction,
     services::{
@@ -12,8 +10,7 @@ use crate::pipeline::{
 };
 use tokio::sync::mpsc::error::TryRecvError as MpscTryRecvError;
 use tokio::sync::{broadcast, mpsc};
-use tokio::task::JoinHandle;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::app::views::{View, client_view::ClientView};
@@ -26,12 +23,8 @@ pub struct MultiClientApp {
     frame_rx: broadcast::Receiver<EnrichedFrame>,
     show_frame: bool,
     selected_client: Option<Uuid>,
-    client_manager: ClientManager,
-    client_manager_handle: ClientManagerHandle,
-    server_task: JoinHandle<()>,
     ui_update_rx: mpsc::Receiver<UiUpdate>,
     ui_update_tx: mpsc::Sender<UiUpdate>,
-    client_id_task: JoinHandle<()>,
     client_ids: Vec<Uuid>,
     cached_frame: Option<EnrichedFrame>,
     ai_pipeline_adapter: UIPipelineAdapter,
@@ -42,45 +35,16 @@ pub struct MultiClientApp {
 impl MultiClientApp {
     pub fn new(
         frame_rx: broadcast::Receiver<EnrichedFrame>,
-        client_manager: ClientManager,
-        client_manager_handle: ClientManagerHandle,
-        mut server: Server,
         ai_pipeline_adapter: UIPipelineAdapter,
     ) -> Self {
         let (ui_update_tx, ui_update_rx) = mpsc::channel::<UiUpdate>(100);
-        let server_task = tokio::spawn(async move {
-            server.start().await.expect("Server task died");
-        });
-
-        let clone_handle = client_manager_handle.clone();
-        let clone_tx = ui_update_tx.clone();
-
-        let client_id_task = tokio::spawn(async move {
-            loop {
-                let client_ids = clone_handle.list_clients().await;
-                debug!("Client IDs to update: {:?}", client_ids);
-                match clone_tx.send(UiUpdate::ClientList(client_ids)).await {
-                    Ok(_) => {
-                        debug!("Client list update sent");
-                    }
-                    Err(e) => {
-                        error!("Error sending client list update: {:?}", e);
-                    }
-                }
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            }
-        });
 
         Self {
             frame_rx,
             show_frame: true,
             selected_client: None,
-            client_manager,
-            client_manager_handle,
-            server_task,
             ui_update_rx,
             ui_update_tx,
-            client_id_task,
             client_ids: Vec::new(),
             cached_frame: None,
             ai_pipeline_adapter,
@@ -103,10 +67,6 @@ impl MultiClientApp {
         let (frame_tx, frame_rx) = broadcast::channel::<EnrichedFrame>(10000);
         let (action_tx, mut _action_rx) = mpsc::channel::<(Uuid, GameAction)>(1000);
 
-        let (client_manager, client_manager_handle) = ClientManager::new(frame_tx.clone());
-
-        let server = Server::new(3344, client_manager_handle.clone());
-
         // Create performance-optimized AI pipeline for maximum FPS
         let mut ai_pipeline =
             PerformanceOptimizedPipelineFactory::create_ultra_fast_pipeline(action_tx.clone())
@@ -114,14 +74,6 @@ impl MultiClientApp {
         let ai_pipeline_adapter = ai_pipeline.get_ui_adapter();
 
         // Spawn a task to route actions from the AI to the correct client
-        let client_manager_handle_clone = client_manager_handle.clone();
-        tokio::spawn(async move {
-            while let Some((client_id, action)) = _action_rx.recv().await {
-                client_manager_handle_clone
-                    .send_action_to_client(client_id, action)
-                    .await;
-            }
-        });
 
         // Spawn a task for the AI pipeline to process frames
         let mut ai_frame_rx = frame_tx.subscribe();
@@ -147,15 +99,7 @@ impl MultiClientApp {
         let _result = eframe::run_native(
             "PokeBot Visualization - Multi Client View",
             options,
-            Box::new(move |_cc| {
-                Ok(Box::new(MultiClientApp::new(
-                    frame_rx,
-                    client_manager,
-                    client_manager_handle,
-                    server,
-                    ai_pipeline_adapter,
-                )))
-            }),
+            Box::new(move |_cc| Ok(Box::new(MultiClientApp::new(frame_rx, ai_pipeline_adapter)))),
         );
     }
 }

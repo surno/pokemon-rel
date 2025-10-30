@@ -3,7 +3,6 @@ mod config;
 mod emulator;
 mod error;
 mod intake;
-mod network;
 mod pipeline;
 
 use crate::app::multiclient_app::MultiClientApp;
