@@ -1,10 +1,18 @@
 use crate::pipeline::services::learning::smart_action_service::{ActionDecision, GameSituation};
 use crate::pipeline::{EnrichedFrame, GameAction, RLPrediction};
+use std::collections::HashMap;
 use std::time::Instant;
 use uuid::Uuid;
 
+use super::pipeline_stage::{PipelineStage, StageExecutionMetadata};
+
 /// Context object that flows through the processing pipeline
 /// Contains all the state needed for processing a single frame
+/// 
+/// Uses Rust's ownership model effectively:
+/// - Frame is Arc-cloned for sharing
+/// - Metadata tracked per-stage using HashMap for O(1) lookup
+/// - Metrics collected efficiently using simple struct
 #[derive(Clone)]
 pub struct FrameContext {
     pub frame: EnrichedFrame,
@@ -17,6 +25,9 @@ pub struct FrameContext {
     pub image_changed: bool,
     pub metrics: FrameMetrics,
     pub processing_start: Instant,
+    /// Per-stage execution metadata for observability and debugging
+    /// Uses HashMap for efficient stage lookup by type
+    pub stage_metadata: HashMap<PipelineStage, StageExecutionMetadata>,
 }
 
 impl FrameContext {
@@ -33,7 +44,23 @@ impl FrameContext {
             image_changed: false,
             metrics: FrameMetrics::new(),
             processing_start: Instant::now(),
+            stage_metadata: HashMap::new(),
         }
+    }
+
+    /// Get metadata for a specific stage
+    pub fn get_stage_metadata(&self, stage: PipelineStage) -> Option<&StageExecutionMetadata> {
+        self.stage_metadata.get(&stage)
+    }
+
+    /// Get mutable metadata for a specific stage, creating if needed
+    pub fn get_stage_metadata_mut(
+        &mut self,
+        stage: PipelineStage,
+    ) -> &mut StageExecutionMetadata {
+        self.stage_metadata
+            .entry(stage)
+            .or_insert_with(StageExecutionMetadata::new)
     }
 }
 

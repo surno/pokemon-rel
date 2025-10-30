@@ -14,8 +14,9 @@ use crate::pipeline::services::{
         smart_action_service::{ActionDecision, SmartActionService},
     },
     managers::{ClientStateManager, ImageChangeDetector, MacroManager},
-    orchestration::{
-        AIPipelineOrchestrator, MetricsCollector, ProcessingPipeline, UIPipelineAdapter,
+        orchestration::{
+        AIPipelineOrchestrator, MetricsCollector, ProcessingPipeline, ProcessingStepAdapter,
+        PipelineStage, UIPipelineAdapter,
         action_selector::{
             HybridActionSelector, PolicyBasedActionSelector, RuleBasedActionSelector,
         },
@@ -171,8 +172,10 @@ impl AIPipelineFactory {
         // Create shared RL service for learning step
         let rl_service_for_learning = Arc::new(Mutex::new(rl_service));
 
+        // Create pipeline using stage-based architecture
+        // Steps are automatically assigned to appropriate stages via add_step()
         Ok(ProcessingPipeline::new()
-            // Step 1: Scene analysis and situation understanding
+            // Step 1: Scene analysis and situation understanding (-> Analysis stage)
             .add_step(Box::new(SceneAnalysisStep::new(
                 scene_analysis_orchestrator,
                 smart_action_service,
@@ -181,16 +184,16 @@ impl AIPipelineFactory {
             .add_step(Box::new(PolicyInferenceStep::new(
                 RLService::new(), // Create a new instance for this step
             )))
-            // Step 3: Image change detection and client state management
+            // Step 3: Image change detection and client state management (-> Analysis stage)
             .add_step(Box::new(ImageChangeDetectionStep::new(
                 image_change_detector,
                 client_state_manager,
             )))
-            // Step 4: Action selection using configured strategy
+            // Step 4: Action selection using configured strategy (-> ActionSelection stage)
             .add_step(Box::new(ActionSelectionStep::new(action_selector)))
-            // Step 5: Macro execution and management
+            // Step 5: Macro execution and management (-> ActionSelection stage)
             .add_step(Box::new(MacroExecutionStep::new(macro_manager)))
-            // Step 6: Learning (reward processing, experience collection, policy updates)
+            // Step 6: Learning (reward processing, experience collection, policy updates) (-> Learning stage)
             .add_step(Box::new(
                 LearningStep::new(
                     reward_processor,
