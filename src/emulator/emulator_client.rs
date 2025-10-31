@@ -1,9 +1,11 @@
+use chrono::Utc;
 use image::{DynamicImage, RgbImage};
 use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+use crate::common::Frame;
 use crate::{common::game_action::GameAction, error::AppError};
 
 pub struct EmulatorClient {
@@ -12,11 +14,7 @@ pub struct EmulatorClient {
 }
 
 impl EmulatorClient {
-    pub fn new(
-        action_rx: Receiver<GameAction>,
-        frame_tx: Sender<DynamicImage>,
-        rom_path: String,
-    ) -> Self {
+    pub fn new(action_rx: Receiver<GameAction>, frame_tx: Sender<Frame>, rom_path: String) -> Self {
         let cancel_token = CancellationToken::new();
         let mut emulator = Emulator::new(action_rx, frame_tx, rom_path);
         Self {
@@ -43,17 +41,13 @@ impl Drop for EmulatorClient {
 
 struct Emulator {
     action_rx: Receiver<GameAction>,
-    frame_tx: Sender<DynamicImage>,
+    frame_tx: Sender<Frame>,
     rom_path: String,
     id: Uuid,
 }
 
 impl Emulator {
-    pub fn new(
-        action_rx: Receiver<GameAction>,
-        frame_tx: Sender<DynamicImage>,
-        rom_path: String,
-    ) -> Self {
+    pub fn new(action_rx: Receiver<GameAction>, frame_tx: Sender<Frame>, rom_path: String) -> Self {
         Self {
             action_rx,
             frame_tx,
@@ -138,7 +132,10 @@ impl Emulator {
         let image = self.get_dynamic_image(desmume);
         match image {
             Some(image) => {
-                match self.frame_tx.try_send(image) {
+                match self
+                    .frame_tx
+                    .try_send(Frame::new(self.id, image, Utc::now(), Uuid::new_v4()))
+                {
                     Ok(_) => {}
                     Err(err) => match err {
                         TrySendError::Full(_) => {

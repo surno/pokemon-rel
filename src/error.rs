@@ -6,6 +6,8 @@ use thiserror::Error;
 pub enum AppError {
     #[error("Service error: {0}")]
     Service(#[from] Box<dyn std::error::Error + Send + Sync + 'static>),
+    #[error("Pipeline error: {0}")]
+    Pipeline(String),
     #[error("Client error: {0}")]
     Client(String),
     #[error("I/O error: {0}")]

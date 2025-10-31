@@ -28,7 +28,7 @@ pub struct ProcessingPipeline {
                             + 'static,
                     >,
                 >,
-            >,
+            > + Send,
     >,
 }
 
