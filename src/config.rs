@@ -1,20 +1,19 @@
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
-pub struct Settings {
-    pub emulator: EmulatorSettings,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct EmulatorSettings {
+pub struct Configuration {
     pub rom_path: String,
+    pub frame_buffer_size: usize,
+    pub action_buffer_size: usize,
+    pub enable_metrics: bool,
 }
 
-impl Settings {
-    pub fn new() -> Result<Self, config::ConfigError> {
-        let s = config::Config::builder()
-            .add_source(config::File::with_name("config/default"))
-            .build()?;
-        s.try_deserialize()
+impl Default for Configuration {
+    fn default() -> Self {
+        Self {
+            rom_path: String::new(),
+            frame_buffer_size: 60,
+            action_buffer_size: 10,
+            enable_metrics: false,
+        }
     }
 }

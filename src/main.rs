@@ -1,9 +1,12 @@
 mod common;
 mod config;
+mod coordinator;
 mod emulator;
 mod error;
+mod pipeline;
 
-use crate::config::Settings;
+use crate::config::Configuration;
+use crate::coordinator::CoordinatorBuilder;
 use crate::error::AppError;
 use tracing::Level;
 
@@ -13,7 +16,7 @@ fn init_logging() {
 
 #[tokio::main]
 async fn main() -> Result<(), AppError> {
-    let settings = Settings::new().map_err(|e| AppError::Config(e.to_string()))?;
+    let configuration = Configuration::default();
     init_logging();
     Ok(())
 }
