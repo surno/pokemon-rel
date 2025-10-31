@@ -8,7 +8,7 @@ use crate::{
 use tokio::sync::mpsc::Receiver;
 use tokio_util::sync::CancellationToken;
 
-struct Coordinator {
+pub struct Coordinator {
     pipeline_task: tokio::task::JoinHandle<()>,
     cancel_token: CancellationToken,
 }

@@ -3,6 +3,9 @@ name = "pokebot-rust"
 version = "0.1.0"
 edition = "2024"
 
+[net]
+git-fetch-with-cli = true
+
 [dependencies]
 bloomfilter = { version = "3.0.0" }
 serde = { version = "1.0.210", features = ["derive"] }
@@ -27,7 +30,7 @@ image = { version = "0.25.6" }
 tokio-stream = { version = "0.1" }
 
 
-desmume-rs = { git = "https://github.com/surno/desmume-rs.git" }
+desmume-rs = { path = "./desmume-rs", version = "0.1.3" }
 chrono = "0.4.41"
 rand = "0.9.1"
 config = "0.15.15"
