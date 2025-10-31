@@ -1,10 +1,11 @@
 use std::{array::TryFromSliceError, string::FromUtf8Error};
 
 use thiserror::Error;
-use uuid::Uuid;
 
 #[derive(Error, Debug)]
 pub enum AppError {
+    #[error("Service error: {0}")]
+    Service(#[from] Box<dyn std::error::Error + Send + Sync + 'static>),
     #[error("Client error: {0}")]
     Client(String),
     #[error("I/O error: {0}")]
