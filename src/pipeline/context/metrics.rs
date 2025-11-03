@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 /// Metrics collected during frame processing
+#[derive(Clone)]
 pub struct FrameMetrics {
     analysis_duration: Option<Duration>,
 }

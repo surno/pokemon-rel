@@ -2,6 +2,7 @@ use crate::pipeline::domain::scene_analysis::SceneAnalysis;
 
 // Markers to track the state of the frame processing pipeline
 pub struct IngestedState;
+#[derive(Clone)]
 pub struct AnalyzedState {
     pub(super) analysis: SceneAnalysis,
 }

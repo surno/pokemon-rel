@@ -29,6 +29,18 @@ impl Frame {
     pub fn get_client_id(&self) -> Uuid {
         self.client_id
     }
+
+    pub fn image(&self) -> &DynamicImage {
+        &self.image
+    }
+
+    pub fn captured_at(&self) -> DateTime<Utc> {
+        self.captured_at
+    }
+
+    pub fn frame_id(&self) -> Uuid {
+        self.frame_id
+    }
 }
 
 #[cfg(test)]

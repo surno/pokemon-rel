@@ -1,4 +1,7 @@
 use crate::app::view::{View, ViewFinder};
+use crate::pipeline::context::frame_context::FrameContext;
+use crate::pipeline::context::state::AnalyzedState;
+use tokio::sync::watch::Receiver;
 
 pub struct PokeBot {
     viewfinder: ViewFinder,
@@ -13,9 +16,12 @@ impl eframe::App for PokeBot {
 }
 
 impl PokeBot {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(
+        cc: &eframe::CreationContext<'_>,
+        frame_rx: Receiver<Option<FrameContext<AnalyzedState>>>,
+    ) -> Self {
         Self {
-            viewfinder: ViewFinder::new(),
+            viewfinder: ViewFinder::new(frame_rx),
         }
     }
 }

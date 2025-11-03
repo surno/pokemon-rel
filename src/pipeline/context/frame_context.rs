@@ -6,6 +6,7 @@ use crate::pipeline::domain::scene_analysis::SceneAnalysis;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+#[derive(Clone)]
 // FrameContext with compile-time state tracking via the phantom data
 pub struct FrameContext<S> {
     frame: Arc<Frame>,

@@ -9,6 +9,7 @@ pub enum SceneType {
     Unknown,
 }
 
+#[derive(Clone)]
 pub struct SceneAnalysis {
     scene_type: SceneType,
     confidence: f32,

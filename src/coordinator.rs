@@ -1,3 +1,5 @@
+use crate::pipeline::context::frame_context::FrameContext;
+use crate::pipeline::context::state::AnalyzedState;
 use crate::{
     common::{frame::Frame, game_action::GameAction},
     config::Configuration,
@@ -5,33 +7,46 @@ use crate::{
     error::AppError,
     pipeline::orchestration::processing_pipeline::ProcessingPipeline,
 };
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::watch::Receiver;
 use tokio_util::sync::CancellationToken;
 
 pub struct Coordinator {
     pipeline_task: tokio::task::JoinHandle<()>,
     cancel_token: CancellationToken,
+    frame_rx: Option<Receiver<Option<FrameContext<AnalyzedState>>>>,
 }
 
 impl Coordinator {
     fn new(configuration: Configuration, pipeline: ProcessingPipeline) -> Self {
         let cancel_token = CancellationToken::new();
 
+        let (pipeline_task, frame_rx) =
+            Self::start_tasks(configuration, pipeline, cancel_token.clone());
         Self {
-            pipeline_task: Self::start_tasks(configuration, pipeline, cancel_token.clone()),
+            pipeline_task,
             cancel_token,
+            frame_rx: Some(frame_rx),
         }
+    }
+
+    pub fn frame_rx(&mut self) -> Option<Receiver<Option<FrameContext<AnalyzedState>>>> {
+        // move the frame_rx out of the coordinator
+        self.frame_rx.take()
     }
 
     fn start_tasks(
         configuration: Configuration,
         pipeline: ProcessingPipeline,
         cancel_token: CancellationToken,
-    ) -> tokio::task::JoinHandle<()> {
+    ) -> (
+        tokio::task::JoinHandle<()>,
+        Receiver<Option<FrameContext<AnalyzedState>>>,
+    ) {
         let (frame_tx, frame_rx) = tokio::sync::mpsc::channel(configuration.frame_buffer_size);
         let (action_tx, action_rx) = tokio::sync::mpsc::channel(configuration.action_buffer_size);
         let mut client = EmulatorClient::new(action_rx, frame_tx, configuration.rom_path.clone());
-        let pipeline_task = Self::start_pipeline_task(pipeline, frame_rx, cancel_token.clone());
+        let (pipeline_task, pipeline_frame_rx) =
+            Self::start_pipeline_task(pipeline, frame_rx, cancel_token.clone());
         let handler_task = tokio::spawn(async move {
             loop {
                 tokio::select! {
@@ -44,25 +59,37 @@ impl Coordinator {
                 }
             }
         });
-        handler_task
+        (handler_task, pipeline_frame_rx)
     }
 
     fn start_pipeline_task(
         mut pipeline: ProcessingPipeline,
-        mut frame_rx: Receiver<Frame>,
+        mut frame_rx: tokio::sync::mpsc::Receiver<Frame>,
         cancel_token: CancellationToken,
-    ) -> tokio::task::JoinHandle<()> {
+    ) -> (
+        tokio::task::JoinHandle<()>,
+        Receiver<Option<FrameContext<AnalyzedState>>>,
+    ) {
+        let (pipeline_frame_tx, pipeline_frame_rx) = tokio::sync::watch::channel(None);
         let pipeline_task = tokio::spawn(async move {
             while let Some(frame) = frame_rx.recv().await
                 && !cancel_token.is_cancelled()
             {
                 let response = pipeline.process(frame).await;
-                if let Err(e) = response {
-                    tracing::error!("Pipeline error: {}", e);
+                match response {
+                    Ok(frame_context) => {
+                        if let Err(e) = pipeline_frame_tx.send(Some(frame_context)) {
+                            tracing::error!("Failed to send frame context to pipeline: {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Pipeline error: {}", e);
+                        break;
+                    }
                 }
             }
         });
-        pipeline_task
+        (pipeline_task, pipeline_frame_rx)
     }
 
     pub fn stop(&self) {
