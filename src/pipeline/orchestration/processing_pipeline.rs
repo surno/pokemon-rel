@@ -92,5 +92,8 @@ impl Default for ProcessingPipelineBuilder {
 // Trait for analyzer implementations
 #[async_trait]
 pub trait AnalyzerStep: Send + Sync + 'static {
-    async fn analyze(&self, ctx: &FrameContext<IngestedState>) -> Result<SceneAnalysis, AppError>;
+    async fn analyze(
+        &self,
+        ctx: &FrameContext<IngestedState>,
+    ) -> Result<SceneAnalysis, Box<dyn std::error::Error + Send + Sync + 'static>>;
 }

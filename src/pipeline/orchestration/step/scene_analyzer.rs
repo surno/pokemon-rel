@@ -56,7 +56,10 @@ impl SceneAnalyzer {
 
 #[async_trait]
 impl AnalyzerStep for SceneAnalyzer {
-    async fn analyze(&self, ctx: &FrameContext<IngestedState>) -> Result<SceneAnalysis, AppError> {
+    async fn analyze(
+        &self,
+        ctx: &FrameContext<IngestedState>,
+    ) -> Result<SceneAnalysis, Box<dyn std::error::Error + Send + Sync + 'static>> {
         Ok(SceneAnalysis::new(SceneType::Unknown, 0.0))
     }
 }

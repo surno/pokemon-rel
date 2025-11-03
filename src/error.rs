@@ -20,6 +20,8 @@ pub enum AppError {
     Ui(String),
     #[error("Unknown error")]
     Unknown,
+    #[error("Eframe error: {0}")]
+    Eframe(#[from] eframe::Error),
 }
 
 // FrameError remains a detailed, specific error type for frame parsing.

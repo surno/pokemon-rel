@@ -29,7 +29,7 @@ impl Coordinator {
         cancel_token: CancellationToken,
     ) -> tokio::task::JoinHandle<()> {
         let (frame_tx, frame_rx) = tokio::sync::mpsc::channel(configuration.frame_buffer_size);
-        let (_action_tx, action_rx) = tokio::sync::mpsc::channel(configuration.action_buffer_size);
+        let (action_tx, action_rx) = tokio::sync::mpsc::channel(configuration.action_buffer_size);
         let mut client = EmulatorClient::new(action_rx, frame_tx, configuration.rom_path.clone());
         let pipeline_task = Self::start_pipeline_task(pipeline, frame_rx, cancel_token.clone());
         let handler_task = tokio::spawn(async move {
@@ -38,6 +38,7 @@ impl Coordinator {
                     _ = cancel_token.cancelled() => {
                         client.stop();
                         pipeline_task.await.unwrap();
+                        action_tx.send(GameAction::A).await.unwrap();
                         break;
                     }
                 }
@@ -58,8 +59,6 @@ impl Coordinator {
                 let response = pipeline.process(frame).await;
                 if let Err(e) = response {
                     tracing::error!("Pipeline error: {}", e);
-                } else {
-                    tracing::info!("Pipeline got response.");
                 }
             }
         });
