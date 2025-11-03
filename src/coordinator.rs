@@ -48,15 +48,12 @@ impl Coordinator {
         let (pipeline_task, pipeline_frame_rx) =
             Self::start_pipeline_task(pipeline, frame_rx, cancel_token.clone());
         let handler_task = tokio::spawn(async move {
-            loop {
-                tokio::select! {
+            tokio::select! {
                     _ = cancel_token.cancelled() => {
                         client.stop();
                         pipeline_task.await.unwrap();
                         action_tx.send(GameAction::A).await.unwrap();
-                        break;
                     }
-                }
             }
         });
         (handler_task, pipeline_frame_rx)

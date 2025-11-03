@@ -1,8 +1,5 @@
-use std::sync::Arc;
-
 use crate::pipeline::context::frame_context::FrameContext;
 use crate::pipeline::context::state::AnalyzedState;
-use eframe::glow::Texture;
 use egui::{ColorImage, ImageSource, TextureOptions, Vec2, load::SizedTexture};
 use tokio::sync::watch::Receiver;
 
@@ -24,16 +21,26 @@ impl crate::app::view::View for ViewFinder {
                 [image.width() as usize, image.height() as usize],
                 &image.to_rgba8().into_raw(),
             );
-            self.image = Some(egui::Context::load_texture(
-                ui.ctx(),
-                "Emulator Frame",
-                color_image,
-                TextureOptions::default(),
-            ));
+            if self.image.is_none() {
+                self.image = Some(egui::Context::load_texture(
+                    ui.ctx(),
+                    "Emulator Frame",
+                    color_image,
+                    TextureOptions::default(),
+                ));
+            } else {
+                self.image
+                    .as_mut()
+                    .unwrap()
+                    .set(color_image, TextureOptions::default());
+            }
+
             ui.image(ImageSource::Texture(SizedTexture::new(
                 self.image.as_ref().unwrap().id(),
                 Vec2::new(image.width() as f32, image.height() as f32),
             )));
+
+            ui.ctx().request_repaint();
         }
     }
 }

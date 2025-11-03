@@ -1,5 +1,3 @@
-use serde::Deserialize;
-
 pub struct Configuration {
     pub rom_path: String,
     pub frame_buffer_size: usize,

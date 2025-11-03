@@ -8,7 +8,7 @@ pub struct PokeBot {
 }
 
 impl eframe::App for PokeBot {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             self.viewfinder.ui(ui);
         });
@@ -17,7 +17,7 @@ impl eframe::App for PokeBot {
 
 impl PokeBot {
     pub fn new(
-        cc: &eframe::CreationContext<'_>,
+        _cc: &eframe::CreationContext<'_>,
         frame_rx: Receiver<Option<FrameContext<AnalyzedState>>>,
     ) -> Self {
         Self {

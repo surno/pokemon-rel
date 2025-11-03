@@ -28,19 +28,17 @@ impl Service<FrameContext<IngestedState>> for AnalyzerService {
     type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
     }
 
     fn call(&mut self, req: FrameContext<IngestedState>) -> Self::Future {
         let inner = self.inner.clone();
 
-        let future = Box::pin(async move {
+        Box::pin(async move {
             let analysis = inner.analyze(&req).await?;
             Ok(req.into_analyzed(analysis))
-        });
-
-        future
+        })
     }
 }
 

@@ -17,3 +17,9 @@ impl FrameMetrics {
         self.analysis_duration = Some(duration);
     }
 }
+
+impl Default for FrameMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}

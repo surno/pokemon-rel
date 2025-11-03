@@ -1,4 +1,3 @@
-use crate::error::AppError;
 use crate::pipeline::context::frame_context::FrameContext;
 use crate::pipeline::context::state::IngestedState;
 use crate::pipeline::domain::scene_analysis::SceneAnalysis;
@@ -58,7 +57,7 @@ impl SceneAnalyzer {
 impl AnalyzerStep for SceneAnalyzer {
     async fn analyze(
         &self,
-        ctx: &FrameContext<IngestedState>,
+        _ctx: &FrameContext<IngestedState>,
     ) -> Result<SceneAnalysis, Box<dyn std::error::Error + Send + Sync + 'static>> {
         Ok(SceneAnalysis::new(SceneType::Unknown, 0.0))
     }

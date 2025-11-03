@@ -93,7 +93,6 @@ impl Emulator {
             GameAction::L => 1 << 9,
             GameAction::X => 1 << 10,
             // If GameAction::Y does not exist, map nothing for that slot
-            _ => 0,
         };
         if mask != 0 {
             desmume.input_mut().keypad_update(mask);
@@ -119,11 +118,11 @@ impl Emulator {
         match rgb_image {
             Some(rgb_image) => {
                 let image = DynamicImage::ImageRgb8(rgb_image);
-                return Some(image);
+                Some(image)
             }
             None => {
                 tracing::error!("Failed to convert buffer to RGB image");
-                return None;
+                None
             }
         }
     }
@@ -144,9 +143,6 @@ impl Emulator {
                         }
                         TrySendError::Closed(_) => {
                             tracing::warn!("Frame channel closed, stopping emulator loop");
-                        }
-                        _ => {
-                            tracing::error!("Failed to send frame: {}", err);
                         }
                     },
                 }
