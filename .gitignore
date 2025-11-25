@@ -16,7 +16,9 @@ Thumbs.db
 # Project specific
 frame*.png
 pokemon_shiny_model*
+*.dst
 
 # Rust ignore
 target/
 Cargo.lock  
+
