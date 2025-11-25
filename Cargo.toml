@@ -36,3 +36,7 @@ rand = "0.9.1"
 config = "0.15.15"
 async-trait = "0.1.89"
 tokio-util = "0.7.16"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.4"
+desmume-sys = { path = "./desmume-rs/desmume_sys", version = "0.1.5" }

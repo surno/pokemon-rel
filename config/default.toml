@@ -1,2 +1,3 @@
 [emulator]
 rom_path = "/Users/tony/Projects/pokemon-shiny/POKEMON_B_IRBO01_00.nds"
+renderer = "auto"  # Options: auto, metal, software

@@ -3,7 +3,7 @@ use crate::pipeline::context::state::AnalyzedState;
 use crate::{
     common::{frame::Frame, game_action::GameAction},
     config::Configuration,
-    emulator::emulator_client::EmulatorClient,
+    emulator::emulator_client::{self, EmulatorClient},
     error::AppError,
     pipeline::orchestration::processing_pipeline::ProcessingPipeline,
 };
@@ -17,11 +17,11 @@ pub struct Coordinator {
 }
 
 impl Coordinator {
-    fn new(configuration: Configuration, pipeline: ProcessingPipeline) -> Self {
+    fn new(configuration: Configuration, pipeline: ProcessingPipeline, desmume: Option<desmume_rs::DeSmuME>) -> Self {
         let cancel_token = CancellationToken::new();
 
         let (pipeline_task, frame_rx) =
-            Self::start_tasks(configuration, pipeline, cancel_token.clone());
+            Self::start_tasks(configuration, pipeline, cancel_token.clone(), desmume);
         Self {
             pipeline_task,
             cancel_token,
@@ -38,13 +38,42 @@ impl Coordinator {
         configuration: Configuration,
         pipeline: ProcessingPipeline,
         cancel_token: CancellationToken,
+        desmume: Option<desmume_rs::DeSmuME>,
     ) -> (
         tokio::task::JoinHandle<()>,
         Receiver<Option<FrameContext<AnalyzedState>>>,
     ) {
         let (frame_tx, frame_rx) = tokio::sync::mpsc::channel(configuration.frame_buffer_size);
         let (action_tx, action_rx) = tokio::sync::mpsc::channel(configuration.action_buffer_size);
-        let mut client = EmulatorClient::new(action_rx, frame_tx, configuration.rom_path.clone());
+        
+        // Use pre-initialized emulator if provided, otherwise initialize here (fallback for non-Metal cases)
+        let desmume = match desmume {
+            Some(emu) => {
+                tracing::info!("Using pre-initialized emulator (initialized on main thread)");
+                emu
+            }
+            None => {
+                tracing::info!("Initializing emulator in start_tasks (fallback mode)");
+                match emulator_client::initialize_emulator(
+                    configuration.rom_path.clone(),
+                    configuration.renderer.clone(),
+                ) {
+                    Ok(emu) => emu,
+                    Err(e) => {
+                        tracing::error!("Failed to initialize emulator: {}", e);
+                        // Return a dummy task handle - the actual error should be handled by caller
+                        let (dummy_task, dummy_rx) = Self::start_pipeline_task(pipeline, frame_rx, cancel_token.clone());
+                        return (dummy_task, dummy_rx);
+                    }
+                }
+            }
+        };
+        
+        let mut client = EmulatorClient::new(
+            action_rx,
+            frame_tx,
+            desmume,
+        );
         let (pipeline_task, pipeline_frame_rx) =
             Self::start_pipeline_task(pipeline, frame_rx, cancel_token.clone());
         let handler_task = tokio::spawn(async move {
@@ -104,6 +133,7 @@ impl Drop for Coordinator {
 pub struct CoordinatorBuilder {
     configuration: Configuration,
     pipeline: Option<ProcessingPipeline>,
+    desmume: Option<desmume_rs::DeSmuME>,
 }
 
 impl CoordinatorBuilder {
@@ -111,6 +141,7 @@ impl CoordinatorBuilder {
         Self {
             configuration,
             pipeline: None,
+            desmume: None,
         }
     }
 
@@ -143,11 +174,18 @@ impl CoordinatorBuilder {
         self
     }
 
+    // Sets a pre-initialized DeSmuME instance (required for Metal thread safety on macOS).
+    // The emulator must be initialized on the main thread before the tokio runtime is created.
+    pub fn desmume(mut self, desmume: desmume_rs::DeSmuME) -> Self {
+        self.desmume = Some(desmume);
+        self
+    }
+
     pub fn build(self) -> Result<Coordinator, AppError> {
         let pipeline = self
             .pipeline
             .ok_or(AppError::Pipeline("Pipeline not set".to_string()))?;
-        Ok(Coordinator::new(self.configuration, pipeline))
+        Ok(Coordinator::new(self.configuration, pipeline, self.desmume))
     }
 }
 
